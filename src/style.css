@@ -1,0 +1,71 @@
+:root {
+  color-scheme: dark;
+  --fg: #f2f4f8;
+  --muted: rgba(242, 244, 248, 0.6);
+  --faint: rgba(242, 244, 248, 0.34);
+  --panel: rgba(12, 14, 20, 0.74);
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /*
+   * 层级表 —— 全应用只从这里取，别再写裸数字。
+   * 之前的 bug 就是设置页没有 z-index，被 z-index: 5 的卡片带压住了。
+   */
+  --z-backdrop: 0;
+  --z-rail: 2;
+  --z-topbar: 8;
+  --z-hints: 9;
+  --z-detail: 20; /* 详情页整页推开，盖住首页 */
+  --z-sheet: 40; /* 设置这类浮层必须压在详情页之上 */
+  --z-launch: 60; /* 启动提示在最前面 */
+  --z-toast: 80;
+  font-family:
+    -apple-system, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", system-ui, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: #05060a;
+  color: var(--fg);
+  overflow: hidden;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* 用手柄时把系统光标收起来，像主机一样只有焦点没有鼠标 */
+body.using-pad {
+  cursor: none;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+  background: none;
+  border: 0;
+  cursor: pointer;
+}
+
+img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
+kbd {
+  font-family: ui-monospace, "SF Mono", Menlo, monospace;
+  font-size: 0.78em;
+  padding: 0.1em 0.4em;
+  border-radius: 4px;
+  background: rgba(255, 255, 255, 0.1);
+}
