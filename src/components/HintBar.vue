@@ -267,9 +267,9 @@ kbd {
    */
   padding: 0.46rem 1.15rem;
   border-radius: 999px;
-  background: rgba(9, 11, 16, 0.46);
-  border: 1px solid rgba(255, 255, 255, 0.07);
-  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+  background: var(--capsule-bg);
+  border: 1px solid var(--capsule-line);
+  box-shadow: var(--capsule-shadow);
   backdrop-filter: blur(14px) saturate(120%);
 }
 

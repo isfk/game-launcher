@@ -74,12 +74,12 @@ const avatarUrl = computed(() => (avatarBroken.value ? "" : (props.avatar ?? "")
   gap: 0.5rem;
   height: 2.05rem;
   padding: 0 0.8rem 0 0.2rem;
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--capsule-line);
   border-radius: 999px;
-  background: rgba(10, 12, 18, 0.34);
+  background: var(--capsule-bg);
   box-shadow:
-    0 8px 26px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    var(--capsule-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(16px) saturate(1.15);
   color: inherit;
   font: inherit;
@@ -90,8 +90,8 @@ const avatarUrl = computed(() => (avatarBroken.value ? "" : (props.avatar ?? "")
 }
 
 .who:hover {
-  background: rgba(18, 21, 30, 0.52);
-  border-color: rgba(255, 255, 255, 0.12);
+  background: var(--capsule-bg-strong);
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .avatar,

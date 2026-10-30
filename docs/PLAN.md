@@ -181,6 +181,35 @@ UserLocalConfigStore → Software → Valve → Steam → Apps → <appid>
 
 ---
 
+## 4.2.1 开机画面（index.html 里那层）
+
+WebView 从加载页面到 Vue 挂载之间有一段空窗（实测第一帧后还有 ~0.66s 的主线程阻塞：
+解析 JS 包 + Vue 首帧）。这段时间如果什么都不画，就是「黑屏闪一下」。
+
+所以开机画面写在 `index.html` 的 `<style>` 里，不依赖任何 JS 包：
+
+- 图标 logo（用 `public/logo.png`，保留图标自带的圆角方块，不裁圆、不加外圈描边）
+  + 2.6s 呼吸（`scale(.975↔1.025)`）
+- `GAME LAUNCHER` 0.4em 字距，1.9s 呼吸
+- 扫光进度条（1.35s）
+- 全部动画都是 transform / opacity，会被提到合成层
+
+三个关键点：
+
+1. **动画不靠 JS 起跑**。早先试过「双 rAF 加 `.go` 类」，但窗口被遮挡时 rAF 不触发，
+   动画就永远不开始 —— 一律直接用 CSS animation。
+2. **挂载时把时间轴拨回 0**（`App.vue` 的 `onMounted`）：主线程堵着的时候 CSS 动画的时间
+   照样在走，等空出来会「跳」到半圈；拨回 0 之后第一帧就是第 0 帧，看不出跳。
+3. **撤画面要等库读完**（`Promise.allSettled([load(), loadSettings()])`），否则会先闪一下空库
+   再蹦出卡片；最短展示 2s，库读太快也不会「一闪而过」。
+
+## 4.2.2 胶囊底色统一
+
+`--capsule-bg` / `--capsule-bg-strong` / `--capsule-line` / `--capsule-shadow` 四个 token
+管住所有圆形/胶囊状底板：平台统计、底部提示条、右上头像、网格与设置的关闭键。
+以前每处各写 `rgba(10,12,18,.34)` 之类的深色，压在封面上像一块墨；现在统一成浅色玻璃，
+深浅只由 hover 的 `-strong` 区分。
+
 ## 4.3 键位表
 
 **提示条默认显示手柄键位（Xbox）**：没接手柄也按 Xbox 画，因为 XInput 最常见。

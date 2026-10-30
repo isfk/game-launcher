@@ -4,8 +4,125 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Game Launcher</title>
+    <!--
+      开机画面。写在 index.html 里而不是 Vue 组件里：
+      它要在 JS 包下载、解析、挂载之前就画出来 —— 那段时间正是「屏幕一片黑」的时候。
+      App 挂载完并且库读完以后会自己摘掉（见 App.vue 的 dismissBoot）。
+    -->
+    <style>
+      #boot {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: grid;
+        place-content: center;
+        justify-items: center;
+        gap: 2.6rem;
+        background:
+          radial-gradient(120% 80% at 50% -10%, #16203a 0%, #0a0c13 46%, #05060a 100%);
+        transition:
+          opacity 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+          transform 0.45s cubic-bezier(0.22, 1, 0.36, 1);
+      }
+
+      #boot.out {
+        opacity: 0;
+        transform: scale(1.015);
+        pointer-events: none;
+      }
+
+      /*
+       * 开机画面中间那个 logo —— 用图标原样（自带的圆角方块），不裁不圆。
+       * 之前这里是个转圈的空环：WebView 解析 JS 包那段主线程是堵的，
+       * 转圈的相位会在空出来后跳一下，看着像卡住；静态 logo + 呼吸就没这问题。
+       */
+      .boot-logo {
+        width: 132px;
+        height: 132px;
+        background: url("/logo.png") center / contain no-repeat;
+        filter: drop-shadow(0 16px 36px rgba(0, 0, 0, 0.5));
+        will-change: transform;
+        transform: translateZ(0);
+        animation: boot-breathe 2.6s ease-in-out infinite;
+      }
+
+      .boot-name {
+        font:
+          500 1.05rem/1 -apple-system,
+          "SF Pro Display",
+          system-ui,
+          sans-serif;
+        letter-spacing: 0.4em;
+        /* letter-spacing 会在末尾多留一格，视觉上往左偏一点才居中 */
+        padding-left: 0.4em;
+        color: rgba(255, 255, 255, 0.44);
+        animation: boot-pulse 1.9s ease-in-out infinite;
+      }
+
+      .boot-bar {
+        width: 268px;
+        height: 3px;
+        border-radius: 999px;
+        overflow: hidden;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .boot-bar i {
+        display: block;
+        width: 40%;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, transparent, rgba(150, 182, 255, 0.9), transparent);
+        animation: boot-slide 1.35s ease-in-out infinite;
+      }
+
+      @keyframes boot-breathe {
+        0%,
+        100% {
+          transform: scale(0.975);
+        }
+        50% {
+          transform: scale(1.025);
+        }
+      }
+
+      @keyframes boot-pulse {
+        0%,
+        100% {
+          opacity: 0.45;
+        }
+        50% {
+          opacity: 0.95;
+        }
+      }
+
+      @keyframes boot-slide {
+        0% {
+          transform: translateX(-110%);
+        }
+        100% {
+          transform: translateX(360%);
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .boot-logo,
+        .boot-name,
+        .boot-bar i {
+          animation: none;
+        }
+        .boot-bar i {
+          width: 55%;
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="boot" aria-hidden="true">
+      <div class="boot-logo" role="img" aria-label="Game Launcher"></div>
+      <div class="boot-name">GAME LAUNCHER</div>
+      <div class="boot-bar"><i></i></div>
+    </div>
     <div id="app"></div>
     <script type="module" src="./src/main.ts"></script>
   </body>

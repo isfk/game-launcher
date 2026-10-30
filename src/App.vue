@@ -20,6 +20,23 @@ import { useLibrary } from "./stores/library";
 
 const lib = useLibrary();
 
+/**
+ * 开机画面至少留够 2 秒。
+ *
+ * 库读得太快时（演示数据眨眼就好）「一闪而过」看着像闪屏故障，
+ * 主机上开机动画本来就有固定节拍 —— 宁可按慢的来，也不要一眨眼就跳过去。
+ */
+const BOOT_MIN_MS = 2000;
+const bootAt = performance.now();
+
+/** dismissBoot 把 index.html 里那层开机画面淡出，动画结束再摘掉节点。 */
+function dismissBoot() {
+  const el = document.getElementById("boot");
+  if (!el) return;
+  el.classList.add("out");
+  window.setTimeout(() => el.remove(), 520);
+}
+
 const railEl = ref<HTMLElement | null>(null);
 const trackEl = ref<HTMLElement | null>(null);
 const shift = ref(0);
@@ -934,6 +951,13 @@ watch(
 const unsubscribers: Array<() => void> = [];
 
 onMounted(() => {
+  // 开机画面在「解析 JS 包」那段（实测 0.6~0.8s）是静止的：CSS 动画的时间轴照样在走，
+  // 等主线程空出来会直接跳到半圈。这里把它拨回 0 —— 挂载后的第一帧就是动画的第 0 帧，
+  // 看不出跳跃，也不会卡在静止画面。
+  document.getElementById("boot")?.getAnimations({ subtree: true }).forEach((a) => {
+    a.currentTime = 0;
+  });
+
   // 临时调试钩子：自动化里直接看几个开关的真实状态
   (window as unknown as Record<string, unknown>).__state = () => ({
     searchOpen: searchOpen.value,
@@ -945,9 +969,14 @@ onMounted(() => {
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("mousemove", onMousemove);
   window.addEventListener("resize", centerFocused);
-  void lib.load().then(centerFocused);
-  // 设置（音效开关、收藏）存在后端，启动时读一次并把音效同步过去
-  void lib.loadSettings();
+  // 开机画面一直留到「库真的读完」再撤：中间那段是扫 Steam / Epic / WeGame，
+  // 提前撤掉就会先闪一下空库、再蹦出卡片，比直接黑屏还难看。
+  // allSettled 是因为扫描失败也得撤画面 —— 不然玩家卡在环形进度上出不来。
+  void Promise.allSettled([lib.load(), lib.loadSettings()]).then(() => {
+    centerFocused();
+    const left = Math.max(0, BOOT_MIN_MS - (performance.now() - bootAt));
+    window.setTimeout(dismissBoot, left);
+  });
 
   if (isMyGo()) {
     // 接着手柄就直接显示 Xbox 键位，不用等玩家先按一下

@@ -467,7 +467,7 @@ h2 {
   border-radius: 50%;
   font-size: 0.8rem;
   color: var(--muted);
-  background: rgba(255, 255, 255, 0.07);
+  background: var(--capsule-bg);
   transition:
     color 0.2s var(--ease-out),
     background 0.2s var(--ease-out);

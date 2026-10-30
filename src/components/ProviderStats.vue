@@ -64,11 +64,11 @@ function labelOf(id: string) {
   height: 1.95rem;
   padding: 0 0.15rem;
   border-radius: 999px;
-  background: rgba(10, 12, 18, 0.34);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: var(--capsule-bg);
+  border: 1px solid var(--capsule-line);
   box-shadow:
-    0 8px 26px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+    var(--capsule-shadow),
+    inset 0 1px 0 rgba(255, 255, 255, 0.05);
   backdrop-filter: blur(16px) saturate(1.15);
 }
 
