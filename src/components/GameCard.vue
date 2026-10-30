@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, ref, watch } from "vue";
+import { computed, onBeforeUpdate, onUpdated, ref, watch } from "vue";
 import { accentOf, providerLabel, vivid } from "../lib/format";
 import ProviderIcon from "./ProviderIcon.vue";
 import type { Game } from "../mygo";
@@ -29,8 +29,78 @@ const accentVivid = computed(() => vivid(accent.value));
 const badge = computed(() => providerLabel(props.game.provider));
 
 /** 贴角模式：除了「左下」以外的三个位置都画到封面角上。 */
-const corner = computed(() => (props.iconPos ?? "bl") !== "bl");
-const posClass = computed(() => `icon-${props.iconPos ?? "bl"}`);
+const pos = computed(() => props.iconPos ?? "bl");
+// 只有上面两个角是贴封面的；左下 / 右下都在「游戏名那一行」里（左端 / 右端），
+// 这样「下」就是字面意义的下：跟标题同一条基线。
+const corner = computed(() => pos.value === "tl" || pos.value === "tr");
+const posClass = computed(() => `icon-${pos.value}`);
+
+/**
+ * 换图标位置时的移动动画（FLIP）。
+ *
+ * 为什么不直接在 CSS 里 transition top/left：换角落时锚点会从 left 变成 right，
+ * 那是两个不同的属性，浏览器不会插值，元素只会瞬间跳过去。
+ * 所以这里在更新前量一次位置，更新后再量一次，用 Web Animations 从旧位置
+ * 「补」到新位置——四个角之间、以及「同行 ↔ 贴角」之间都能滑。
+ */
+// 这个 ref 可能指向组件实例（ProviderIcon）而不是 DOM 节点，取矩形前要拆一层
+// 三个会「动」的元素共用一个 FLIP：图标、游戏名、收藏星标。
+// 换位置时它们的布局位置都会变，各自从旧位置滑到新位置，才不会有一个跳、
+// 另一个滑的割裂感。ref 可能指向组件实例（ProviderIcon）而不是 DOM 节点，
+// 所以取矩形前统一用 node() 拆一层。
+const iconEl = ref<unknown>(null);
+const nameEl = ref<HTMLElement | null>(null);
+const starEl = ref<unknown>(null);
+
+type Box = DOMRect | null;
+const prev: { icon: Box; name: Box; star: Box } = { icon: null, name: null, star: null };
+
+/** node 把「组件实例 / DOM 节点 / 空」统一成 DOM 节点。 */
+function node(target: unknown): HTMLElement | null {
+  if (!target) return null;
+  if (target instanceof HTMLElement) return target;
+  const el = (target as { $el?: unknown }).$el;
+  return el instanceof HTMLElement ? el : null;
+}
+
+/** 尊重系统的「减少动态效果」设置。 */
+function motionOK() {
+  return !window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+
+const FLIP_MS = 420;
+const FLIP_EASE = "cubic-bezier(.22, 1, .36, 1)";
+
+/** flip 让元素从 before 记录的位置滑动到现在的位置。 */
+function flip(target: unknown, before: Box) {
+  const el = node(target);
+  if (!el || !before || !motionOK()) return;
+
+  const after = el.getBoundingClientRect();
+  const dx = before.left - after.left;
+  const dy = before.top - after.top;
+  if (!dx && !dy) return; // 没动就别白跑一个动画
+
+  el.animate([{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }], {
+    duration: FLIP_MS,
+    easing: FLIP_EASE,
+  });
+}
+
+function measure() {
+  prev.icon = node(iconEl.value)?.getBoundingClientRect() ?? null;
+  prev.name = nameEl.value?.getBoundingClientRect() ?? null;
+  prev.star = node(starEl.value)?.getBoundingClientRect() ?? null;
+}
+
+onBeforeUpdate(measure);
+
+onUpdated(() => {
+  flip(iconEl.value, prev.icon);
+  flip(nameEl.value, prev.name);
+  flip(starEl.value, prev.star);
+  measure(); // 记下新位置，下次切换时当「旧位置」用
+});
 </script>
 
 <template>
@@ -48,18 +118,24 @@ const posClass = computed(() => `icon-${props.iconPos ?? "bl"}`);
         <span class="art-glyph">{{ game.title.slice(0, 1) }}</span>
       </template>
       <div class="sheen" />
-      <!-- 贴角模式：平台图标画在封面角上，压在最上层 -->
-      <ProviderIcon v-if="corner" class="badge" :provider="game.provider" :title="badge" />
+      <!-- 贴角模式：角标做成一个 flex 容器，几个元素共用同一套内边距与对齐，
+           换角落时只有位置变，间距和垂直居中都不动 -->
+      <div v-if="corner" class="cluster">
+        <span v-if="favorite && pos === 'tr'" ref="starEl" class="star-row" title="已收藏">★</span>
+        <ProviderIcon ref="iconEl" class="badge" :provider="game.provider" :title="badge" />
+      </div>
     </div>
 
     <div class="label">
       <!-- 默认（左下）：图标 + 游戏名一行，平台信息交给图标表达
            （悬停有全名，详情面板的 eyebrow 也还写着平台） -->
-      <ProviderIcon v-if="!corner" class="label-icon" :provider="game.provider" :title="badge" />
-      <span class="name">{{ game.title }}</span>
+      <ProviderIcon v-if="pos === 'bl'" ref="iconEl" class="label-icon" :provider="game.provider" :title="badge" />
+      <span ref="nameEl" class="name">{{ game.title }}</span>
+      <ProviderIcon v-if="pos === 'br'" ref="iconEl" class="label-icon end" :provider="game.provider" :title="badge" />
     </div>
 
-    <span v-if="favorite" class="star" title="已收藏">★</span>
+    <!-- 右上角的星标已经和平台图标排进行内，这里不再重复画 -->
+    <span v-if="favorite && !(corner && pos === 'tr')" ref="starEl" class="star" title="已收藏">★</span>
     <span v-if="game.running" class="running" title="正在运行">● 运行中</span>
   </article>
 </template>
@@ -147,6 +223,11 @@ const posClass = computed(() => `icon-${props.iconPos ?? "bl"}`);
   font-size: 0.86rem;
 }
 
+/* 右下：名称占满剩余宽度，图标自然被推到行尾 */
+.label-icon.end {
+  margin-left: 0.3em;
+}
+
 .name {
   flex: 1 1 auto;
   min-width: 0;
@@ -192,35 +273,46 @@ const posClass = computed(() => `icon-${props.iconPos ?? "bl"}`);
 }
 
 /* ---- 贴角模式的平台图标 ---- */
-.badge {
+/*
+ * 角标是一个 flex 容器：换角落时只有 top/left/right/bottom 变，
+ * 内部间距（gap）、垂直居中、图标字号都不动。
+ * 内边距统一用 rem 而不是 em —— em 会跟着图标的 font-size 缩放，
+ * 四个角算出来的留白就会不一样，看起来就没对齐。
+ */
+.cluster {
   position: absolute;
   z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.icon-tl .cluster {
+  top: 0.55rem;
+  left: 0.55rem;
+}
+
+.icon-tr .cluster {
+  top: 0.55rem;
+  right: 0.55rem;
+}
+
+.badge {
   font-size: 1.05rem;
   filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.55));
 }
 
-.icon-tl .badge {
-  top: 0.5em;
-  left: 0.5em;
+/* 行内的收藏星标：跟着 flex 走，不再自己绝对定位 */
+.star-row {
+  font-size: 0.9rem;
+  line-height: 1;
+  color: #ffd479;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
 }
 
-.icon-tr .badge {
-  top: 0.5em;
-  right: 0.5em;
-}
-
-/* 右下让开标题条：贴到底会压在游戏名上 */
-.icon-br .badge {
-  right: 0.5em;
-  bottom: 2.5em;
-}
-
-/* 图标占了角，就把角上的角标往下让开，别叠在一起 */
+/* 图标占了左上角：把「运行中」往下让开，别叠在一起 */
 .icon-tl .running {
-  top: 2.3em;
-}
-
-.icon-tr .star {
-  top: 2.2em;
+  top: 2.1rem;
+  left: 0.55rem;
 }
 </style>
