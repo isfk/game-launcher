@@ -24,10 +24,26 @@ const props = defineProps<{
   startKey?: string;
   /** 平台图标位置，和首页共用同一个设置 */
   iconPos?: string;
+  /** 当前选中的下标（首页的 lib.index）：外面的键盘/手柄换了卡，这里跟着走 */
+  index?: number;
   /** 已收藏的 key，星标要和首页一致 */
   favorites?: Set<string>;
-
+  /** 正在退场：跟着播收起的动画，播完由 App 卸载 */
+  closing?: boolean;
+  /**
+   * 卡片区布局：
+   * - rail：首页那条横着走的卡片带
+   * - grid：「全部游戏」的多行网格
+   *
+   * 两个模式共用同一批 DOM（同一批 GameCard），所以切换时能直接 FLIP，
+   * 而不是「一页消失、另一页出现」。
+   */
+  mode?: "rail" | "grid";
 }>();
+
+/** 当前布局，默认网格（老调用方不用改） */
+const mode = computed(() => props.mode ?? "grid");
+const isRail = computed(() => mode.value === "rail");
 
 /** 和首页同一套位置语义：上两个角贴封面，下两个角在名称那一行。 */
 const pos = computed(() => props.iconPos ?? "bl");
@@ -90,6 +106,56 @@ onUnmounted(() => {
 
 watch(() => props.games.length, () => nextTick(measureCards));
 
+const rootEl = ref<HTMLElement | null>(null);
+const trackEl = ref<HTMLElement | null>(null);
+/** 卡片带的横向位移：让焦点卡停在正中间 */
+const shift = ref(0);
+/* 布局切换那 400ms 里，卡片带的居中位移要瞬时到位，不能再滑一遍（否则和 FLIP 打架） */
+const morphing = ref(false);
+
+/**
+ * centerRail 把焦点卡滑到卡片带中间。
+ *
+ * 和网格不同，卡片带是「一次只看得到几张」，所以靠 transform 整条平移，
+ * 而不是滚动容器 —— 滚动容器会独立合成，背景光晕会被切出硬边。
+ */
+function centerRail() {
+  const area = gridEl.value;
+  const track = trackEl.value;
+  if (!area || !track || !isRail.value) return;
+  const cell = cells()[cursor.value];
+  if (!cell) return;
+  const width = area.clientWidth;
+  if (!width) return;
+  // offsetLeft 已经含了 track 的 padding，offsetWidth 不受卡片放大动画影响
+  const target = cell.offsetLeft - (width - cell.offsetWidth) / 2;
+  const maxShift = Math.max(0, track.scrollWidth - width);
+  shift.value = -Math.min(Math.max(target, 0), maxShift);
+}
+
+/**
+ * playExit 播退场动画（整页往下压出去），播完的 Promise 给 App 用来卸载。
+ *
+ * 用 Web Animations 而不是 CSS animation：CSS 那套要靠「换 animation-name」
+ * 重启动画，实测在这套 WebView 里换完名不动（时间轴停在 0），
+ * 于是退场就变成瞬间消失。WAAPI 是显式新建一个动画，没有任何重启语义。
+ */
+function playExit(): Promise<void> {
+  const el = rootEl.value;
+  if (!el || !motionOK()) return Promise.resolve();
+  return new Promise((resolve) => {
+    const anim = el.animate(
+      [{ transform: "translateY(0)" }, { transform: "translateY(100%)" }],
+      { duration: 320, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" },
+    );
+    const done = () => resolve();
+    anim.onfinish = done;
+    anim.oncancel = done;
+    // 兜底：万一 onfinish 没来（被遮挡/被取消），别把网格永远挂在屏幕上
+    window.setTimeout(done, 420);
+  });
+}
+
 const cursor = ref(0);
 
 /**
@@ -134,14 +200,17 @@ const shown = computed(() => (moving.value ? preview.value : props.games));
 /** 按 key 记下每张卡当前的位置（FLIP 的「旧位置」）。 */
 function snapshot(skip?: string): Map<string, DOMRect> {
   const map = new Map<string, DOMRect>();
-  const box = gridEl.value;
-  if (!box) return map;
-  for (const el of box.children) {
-    if (!(el instanceof HTMLElement)) continue;
+  for (const el of cells()) {
     const key = el.dataset.key;
     if (key && key !== skip) map.set(key, el.getBoundingClientRect());
   }
   return map;
+}
+
+/** cells 取所有卡片格（.cell 现在包在 .track 里，不再是容器的直接子节点） */
+function cells(): HTMLElement[] {
+  const box = gridEl.value;
+  return box ? [...box.querySelectorAll<HTMLElement>(".cell")] : [];
 }
 
 /**
@@ -152,10 +221,8 @@ function snapshot(skip?: string): Map<string, DOMRect> {
  * 等 DOM 重排完从那个位置重新滑过去 —— 位置接得上，也不会两份动画叠着打架。
  */
 function cancelCellAnims(skip?: string) {
-  const box = gridEl.value;
-  if (!box) return;
-  for (const el of box.children) {
-    if (!(el instanceof HTMLElement) || el.dataset.key === skip) continue;
+  for (const el of cells()) {
+    if (el.dataset.key === skip) continue;
     for (const anim of el.getAnimations()) anim.cancel();
   }
 }
@@ -172,25 +239,50 @@ async function animateFrom(before: Map<string, DOMRect>, skip?: string, duration
   if (!box) return;
   if (!motionOK()) return;
 
-  for (const el of box.children) {
-    if (!(el instanceof HTMLElement)) continue;
+  const list = cells();
+  for (let i = 0; i < list.length; i++) {
+    const el = list[i];
     if (el.dataset.key === skip) continue; // 被拖的那张跟着指针走，别抢它的 transform
     const prev = before.get(el.dataset.key ?? "");
     if (!prev) continue;
     const now = el.getBoundingClientRect();
     const dx = prev.left - now.left;
     const dy = prev.top - now.top;
-    if (Math.abs(dx) < 1 && Math.abs(dy) < 1) continue;
+    /*
+     * 尺寸也一起补：卡片带 ⇄ 网格时卡片宽度会从 ~340px 变成 ~200px，
+     * 只补位移的话会「一边缩一边飞」，看着就是抽帧。
+     * 用左上角当原点，translate 到旧位置再按旧/新尺寸比例缩放，最后收敛到 1。
+     */
+    const sx = now.width ? prev.width / now.width : 1;
+    const sy = now.height ? prev.height / now.height : 1;
+    const moved = Math.abs(dx) >= 1 || Math.abs(dy) >= 1;
+    const scaled = Math.abs(sx - 1) > 0.01 || Math.abs(sy - 1) > 0.01;
+    if (!moved && !scaled) continue;
 
-    el.animate?.(
-      [{ transform: `translate(${dx}px, ${dy}px)` }, { transform: "translate(0, 0)" }],
-      { duration, easing: "cubic-bezier(.22, .61, .36, 1)" },
+    const anim = el.animate?.(
+      [
+        {
+          transform: `translate(${dx}px, ${dy}px) scale(${sx}, ${sy})`,
+          transformOrigin: "0 0",
+        },
+        { transform: "translate(0, 0) scale(1)", transformOrigin: "0 0" },
+      ],
+      {
+        duration,
+        easing: "cubic-bezier(.22, .61, .36, 1)",
+        // 轻轻错开一点点：一整排同时飞会像「整块跳」，错开才有散开/收拢的手感
+        delay: Math.min(i * 10, 90),
+      },
     );
+    // 保险：动画若被冻结（窗口不可见）永远停在第 0 帧，卡片就会卡在旧位置。
+    // 到点直接取消，元素自然回到布局里的真实位置。
+    if (anim) window.setTimeout(() => anim.cancel(), duration + 120);
   }
 }
 
 /** startMove 进入「调整顺序」：从当前光标那部开始搬。 */
 function startMove(): boolean {
+  if (isRail.value) return false; // 卡片带里没有格位可换
   if (moving.value || !props.games.length) return false;
   const game = props.games[cursor.value];
   if (!game) return false;
@@ -562,7 +654,40 @@ watch(
   },
 );
 
+// 外面的焦点变了（键盘移动、搜索跳转、启动失败回落）：卡片带跟着走
+watch(
+  () => props.index,
+  (i) => {
+    if (typeof i === "number" && i >= 0 && i !== cursor.value) cursor.value = i;
+  },
+);
+
+watch([cursor, isRail, () => shown.value.length], () => {
+  if (isRail.value) void nextTick(centerRail);
+});
+
+/*
+ * 布局切换（卡片带 ⇄ 网格）只换 class，卡片还是那一批 DOM，
+ * 所以可以直接 FLIP：每张卡从旧位置滑到新位置，看起来像「散开 / 收拢」。
+ */
+let morphTimer: number | undefined;
+watch(isRail, async () => {
+  if (moving.value) return;
+  morphing.value = true;
+  if (morphTimer !== undefined) window.clearTimeout(morphTimer);
+  morphTimer = window.setTimeout(() => (morphing.value = false), 520);
+  const before = snapshot();
+  // 等两拍：先进/出网格布局，再等 ResizeObserver 重算完列宽 ——
+  // 否则 FLIP 会按「中间态」的尺寸算，卡片到位之后还要再抖一下。
+  await nextTick();
+  measureCards();
+  await nextTick();
+  cancelCellAnims();
+  void animateFrom(before, undefined, 420);
+});
+
 watch(cursor, () => {
+  if (isRail.value) return;
   if (!drag?.active) scrollTo(cursor.value);
   const game = shown.value[cursor.value];
   if (game) emit("focus", game.key);
@@ -602,6 +727,16 @@ function reset(startKey?: string) {
  */
 function move(dx: number, dy: number): boolean {
   if (moving.value) return moveCard(dx, dy);
+
+  // 卡片带只有一排：上下没有去处，左右换卡
+  if (isRail.value) {
+    const total = props.games.length;
+    if (!total || !dx) return false;
+    const next = cursor.value + dx;
+    if (next < 0 || next >= total) return false;
+    cursor.value = next;
+    return true;
+  }
 
   const tabs = tabIds.value.length;
 
@@ -764,6 +899,7 @@ defineExpose({
   openDetail,
   favorite,
   reset,
+  playExit,
   stepCard,
   stepPlatform,
   startMove,
@@ -775,8 +911,8 @@ defineExpose({
 </script>
 
 <template>
-  <div class="library" @click.self="emit('close')">
-    <header class="head">
+  <div ref="rootEl" class="library" :class="[mode, { closing: props.closing }]">
+    <header v-if="!isRail" class="head">
       <h2>
         全部游戏
         <span class="count">{{ shown.length }}</span>
@@ -806,28 +942,43 @@ defineExpose({
       否则会和卡片自己的 `transform: scale()` 焦点样式互相覆盖。
       卡片本身仍然是首页那个 GameCard，样式/角标/星标全都一样。
     -->
-    <div ref="gridEl" class="grid" :style="{ '--cols': COLS, '--card-w': `${cardW}px` }">
+    <div
+      ref="gridEl"
+      class="area"
+      :class="[isRail ? 'rail' : 'grid', { morphing }]"
+      :style="isRail ? undefined : { '--cols': COLS, '--card-w': `${cardW}px` }"
+    >
       <div
-        v-for="(game, i) in shown"
-        :key="game.key"
-        class="cell"
-        :class="{ dragging: game.key === dragKey }"
-        :data-key="game.key"
-        @pointerdown="onPointerDown($event, i)"
+        ref="trackEl"
+        class="track"
+        :style="
+          isRail
+            ? { transform: `translate3d(calc(${shift}px + var(--rail-nudge, 0px)), 0, 0)` }
+            : undefined
+        "
       >
-        <GameCard
-          :game="game"
-          :focused="zone === 'cards' && i === cursor"
-          :favorite="isFavorite(game.key)"
-          :recent="game.key === lib.lastPlayedKey"
-          :icon-pos="pos"
-          :class="{ lifting: moving && game.key === moveKey }"
-          @pick="pick(i)"
-          @activate="
-            pick(i);
-            activate();
-          "
-        />
+        <div
+          v-for="(game, i) in shown"
+          :key="game.key"
+          class="cell"
+          :class="{ dragging: game.key === dragKey }"
+          :data-key="game.key"
+          @pointerdown="onPointerDown($event, i)"
+        >
+          <GameCard
+            :game="game"
+            :focused="zone === 'cards' && i === cursor"
+            :favorite="isFavorite(game.key)"
+            :recent="game.key === lib.lastPlayedKey"
+            :icon-pos="pos"
+            :class="{ lifting: moving && game.key === moveKey }"
+            @pick="pick(i)"
+            @activate="
+              pick(i);
+              activate();
+            "
+          />
+        </div>
       </div>
     </div>
 
@@ -837,13 +988,60 @@ defineExpose({
 
 <style scoped>
 .library {
-  /* 这是一页（和首页平级），不是浮层：正常占满高度，背景就是最外层那张大图 */
+  /* 网格模式：整页铺开 */
   position: relative;
   z-index: 1;
   height: 100%;
   display: flex;
   flex-direction: column;
   padding: 4.5vh 4vw 3vh;
+  /*
+   * 进出用 keyframes，不用 <Transition> 的过渡类：
+   * 过渡类要靠「下一帧再加 leave-to」这条 rAF 链，窗口被判定不可见时链会断，
+   * 动画就没了。keyframes 一挂上就开始跑，稳固得多。
+   *
+   * 只有位移、不淡化：整页推上去 / 压下来，像主机切页；
+   * 淡入淡出会让两页同时半透明地叠在一起，反而糊。
+   */
+  will-change: transform;
+  backface-visibility: hidden;
+}
+
+/*
+ * 卡片带模式：和首页原来那条带子同样的几何 ——
+ * 贴底（11vh，给提示条让位）、两端渐隐、卡片宽度由高度推出来。
+ */
+.library.rail {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 11vh;
+  height: auto;
+  padding: 0;
+  display: block;
+  --card-w: calc(var(--card-h, 34vh) * 2 / 3);
+}
+
+/*
+ * 进场用 CSS animation（挂载即播，没得商量）；
+ * 退场用 WAAPI（见 playExit）—— 换 animation-name 重启动画在这套 WebView 里
+ * 不可靠，实测换完名时间轴停在 0，退场就变成瞬间消失。
+ * .closing 只负责挡住点击，别让正在滑走的页面还接收指针。
+ */
+.library.closing {
+  pointer-events: none;
+}
+
+@keyframes page-in {
+  from {
+    transform: translateY(100%);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .library {
+    animation: none;
+  }
 }
 
 .head {
@@ -910,12 +1108,54 @@ h2 {
   transform: scale(0.96);
 }
 
-.grid::-webkit-scrollbar {
+.area.grid::-webkit-scrollbar {
   display: none;
 }
 
+/*
+ * 卡片带（首页那种）：一条横着走的轨道，靠 transform 平移居中。
+ * .track 在网格模式下是 display: contents —— 卡片直接参与网格排版，
+ * 于是两种布局可以共用同一批 .cell 节点，切换时才能 FLIP。
+ */
+.area.rail {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  /* 上下留白要容得下选中卡片的放大与上浮，否则顶部会被裁切 */
+  padding: 3rem 0 2rem;
+  overflow: hidden;
+  isolation: isolate;
+  /* 左右不硬裁，改成渐隐：轨道滑动时卡片从边缘化开 */
+  -webkit-mask-image: linear-gradient(
+    90deg,
+    transparent 0,
+    #000 5%,
+    #000 95%,
+    transparent 100%
+  );
+  mask-image: linear-gradient(90deg, transparent 0, #000 5%, #000 95%, transparent 100%);
+}
+
+.area.morphing .track {
+  transition: none;
+}
+
+.area.rail .track {
+  display: flex;
+  align-items: flex-end;
+  gap: 1.1vw;
+  padding-inline: 6vw;
+  transition: transform 0.46s var(--ease-out);
+  will-change: transform;
+}
+
+.area.grid .track {
+  display: contents;
+}
+
 /* 网格本体：只负责摆格子，卡片内部一切样式都来自 GameCard */
-.grid {
+.area.grid {
   position: relative;
   z-index: 1;
   /* basis 0：高度严格等于「剩余空间」，不被内容撑大（否则测行数会自我循环） */
@@ -948,6 +1188,11 @@ h2 {
    * 首页是自由浮动的、没有裁切，两边观感就会不一致。
    */
   padding: 2.4vh 5.5vw 3vh;
+}
+
+.area.rail .cell {
+  /* 格子宽度跟卡片一致（由 --card-w 从 --card-h 推出来），FLIP 才对得上 */
+  width: var(--card-w);
 }
 
 .cell {

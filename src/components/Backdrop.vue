@@ -5,9 +5,15 @@ import type { Game } from "../mygo";
 
 const props = defineProps<{ game?: Game }>();
 
-// 交叉淡入：TransitionGroup 需要旧的那一层继续留在 DOM 里播 leave，
-// 所以这里只保留最新一部，旧的由动画自己走完再从列表消失。
-const shown = ref<Game[]>([]);
+/*
+ * 交叉淡入：最多同时留两层（新的一层淡入、旧的一层淡出）。
+ *
+ * 不用 <TransitionGroup>：它靠 rAF 去挂/摘 enter/leave 类，窗口一旦被判定
+ * 不可见（rAF 被节流）就卡在 scene-enter-from —— 整张背景停在透明，
+ * 屏幕上只剩一片黑。这里用 CSS 动画 + 定时器清理，不依赖那一串时机。
+ */
+const layers = ref<Game[]>([]);
+const MAX_LAYERS = 2;
 // 记录加载失败的 hero 地址：失败就只剩主色光晕。
 // 记的是地址而不是 key —— 后台补到新的大图后，地址变了就该重新试一次。
 const heroFailed = ref<Record<string, string>>({});
@@ -23,12 +29,18 @@ function heroOf(game: Game): string {
   if (!art) return "";
   return art.hero || art.cover || "";
 }
+let fadeTimer: number | undefined;
 watch(
   () => props.game,
   (next) => {
     if (!next) return;
-    if (shown.value.some((s) => s.key === next.key)) return;
-    shown.value = [next];
+    if (layers.value[0]?.key === next.key) return;
+    layers.value = [next, ...layers.value].slice(0, MAX_LAYERS);
+    if (fadeTimer !== undefined) window.clearTimeout(fadeTimer);
+    // 淡出那一层留够动画时间再摘掉
+    fadeTimer = window.setTimeout(() => {
+      layers.value = layers.value.slice(0, 1);
+    }, 600);
   },
   { immediate: true },
 );
@@ -36,11 +48,13 @@ watch(
 
 <template>
   <div class="backdrop">
-    <!-- duration 是兜底：万一把 CSS 过渡关掉了（系统「减少动态效果」、
-         或者截图时注入 transition:none），transitionend 不会来，
-         不显式给时长旧的那一层就会一直挂在 DOM 里。 -->
-    <TransitionGroup name="scene" :duration="550">
-      <div v-for="g in shown" :key="g.key" class="scene" :style="{ '--accent': accentOf(g), '--accent-vivid': vivid(accentOf(g)) }">
+    <div
+      v-for="(g, i) in layers"
+      :key="g.key"
+      class="scene"
+      :class="{ out: i > 0 }"
+      :style="{ '--accent': accentOf(g), '--accent-vivid': vivid(accentOf(g)) }"
+    >
         <img
           v-if="heroOf(g) && !failed(g.key, heroOf(g))"
           class="hero"
@@ -50,8 +64,7 @@ watch(
           @error="heroFailed[g.key] = heroOf(g)"
         />
         <div class="glow" />
-      </div>
-    </TransitionGroup>
+    </div>
     <div class="grain" />
   </div>
 </template>
@@ -67,6 +80,31 @@ watch(
 .scene {
   position: absolute;
   inset: 0;
+  /* 挂载即淡入；换游戏时新的那层盖上来，旧的那层往下淡出 */
+  animation: scene-in 0.55s var(--ease-out) both;
+}
+
+.scene.out {
+  animation: scene-out 0.55s var(--ease-out) both;
+}
+
+@keyframes scene-in {
+  from {
+    opacity: 0;
+  }
+}
+
+@keyframes scene-out {
+  to {
+    opacity: 0;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .scene,
+  .scene.out {
+    animation: none;
+  }
 }
 
 .hero {
@@ -129,13 +167,4 @@ watch(
   }
 }
 
-.scene-enter-active,
-.scene-leave-active {
-  transition: opacity 0.55s var(--ease-out);
-}
-
-.scene-enter-from,
-.scene-leave-to {
-  opacity: 0;
-}
 </style>

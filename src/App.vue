@@ -37,50 +37,6 @@ function dismissBoot() {
   window.setTimeout(() => el.remove(), 520);
 }
 
-const railEl = ref<HTMLElement | null>(null);
-const trackEl = ref<HTMLElement | null>(null);
-const shift = ref(0);
-
-/**
- * 大库窗口化渲染：只挂载焦点附近这些卡片。
- *
- * 为什么必须做：几百部游戏时，每张卡都是一个 <img> + 渐变 + 事件，
- * 全渲染会让滚动卡顿、内存飙升（Steam 库里三四百部很常见）。
- * 半径取 12，是因为屏幕上一屏最多看到 7 张左右，多出来的用于
- * 滑动时提前 آماده，不会看到空白。
- *
- * 注意：占位元素和卡片同宽同高、都是 track 的直接子节点，
- * 所以下标映射和 `track.children[index]` 的取法都不受影响。
- */
-const RENDER_RADIUS = 12;
-function inRenderWindow(i: number) {
-  return Math.abs(i - lib.index) <= RENDER_RADIUS;
-}
-
-/**
- * centerFocused 把当前焦点卡滑到轨道中间。
- *
- * 用 transform 而不是 scrollIntoView：滚动容器会独立合成，
- * 在 Chromium 里会把背景光晕切出一条硬边，而且两端的居中控制不准。
- */
-function centerFocused() {
-  const rail = railEl.value;
-  const track = trackEl.value;
-  if (!rail || !track) return;
-
-  const card = track.children[lib.index];
-  if (!(card instanceof HTMLElement)) return;
-
-  const railWidth = rail.clientWidth;
-  if (!railWidth) return; // 还没布局，等下次 resize / 焦点变化
-
-  // track 是 offsetParent，所以 offsetLeft 已经含了 track 的 padding；
-  // 用 offsetWidth 而不是 getBoundingClientRect，避免卡片放大动画干扰测量。
-  const target = card.offsetLeft - (railWidth - card.offsetWidth) / 2;
-  const maxShift = Math.max(0, track.scrollWidth - railWidth);
-  shift.value = -Math.min(Math.max(target, 0), maxShift);
-}
-
 const detailOpen = ref(false);
 // 默认按手柄提示（Xbox 键位）：玩家动了键盘才切成按键提示，
 // 再动手柄又切回来。
@@ -113,6 +69,7 @@ const gridRef = ref<{
   openDetail: () => boolean;
   favorite: () => boolean;
   reset: (startKey?: string) => void;
+  playExit: () => Promise<void>;
   stepCard: (dir: number) => boolean;
   stepPlatform: (dir: number) => boolean;
   startMove: () => boolean;
@@ -202,7 +159,9 @@ function move(delta: number) {
   // 详情是「页」不是「弹窗」：展开时左右仍可切卡片，内容跟着换。
   // 设置和启动浮层是真的模态，才拦导航。
   if (settingsOpen.value || launching.value || uninstallAsk.value) return;
-  if (lib.move(delta)) sfx.move();
+  // 卡片区的游标现在住在 LibraryGrid 里（网格和卡片带共用同一个），
+  // 走它再让组件把焦点回传给 store。
+  if (gridRef.value?.stepCard(delta)) sfx.move();
 }
 
 async function activate() {
@@ -328,20 +287,27 @@ function openGrid() {
   gridRef.value?.reset(lib.selected?.key);
 }
 
+/**
+ * closeGrid 从网格退回卡片带。
+ *
+ * 以前这是「关掉一整页」，现在只是同一个页面的布局收回去：
+ * 卡片从网格位置 FLIP 回一条带子，页面本身不动、也不闪。
+ */
 function closeGrid() {
   if (!gridOpen.value) return;
   cancelNorthTimer();
-  // 搬动中直接关掉等于默默丢弃这次调整：先按取消处理
+  // 搬动中直接退回等于默默丢弃这次调整：先按取消处理
   if (gridRef.value?.isMoving()) gridRef.value.cancelMove();
   sfx.back();
   gridOpen.value = false;
+  void nextTick(() => gridRef.value?.reset(lib.selected?.key));
 }
 
 /** 在网格里选中一部：关掉网格并把首页焦点落到它身上。 */
 function pickFromGrid(key: string) {
   sfx.confirm();
-  gridOpen.value = false;
   lib.focusKey(key);
+  closeGrid();
 }
 
 /**
@@ -355,16 +321,14 @@ async function launchFromGrid(key: string) {
   const game = lib.games.find((g) => g.key === key) ?? lib.selected;
   if (!game) return;
   lib.focusKey(key);
-  await startGame(game, () => {
-    gridOpen.value = false;
-  });
+  await startGame(game, () => closeGrid());
 }
 
 /** 网格里看详情：确实能开才收起网格（没选中就留在原位）。 */
 function detailFromGrid(key: string) {
   lib.focusKey(key);
   if (!lib.selected) return;
-  gridOpen.value = false;
+  closeGrid();
   openDetail();
 }
 
@@ -927,7 +891,6 @@ watch(
 
 watch(
   () => [lib.index, lib.games.length],
-  () => void nextTick(centerFocused),
 );
 
 // 音效开关以 store 为准（设置面板改了、或者启动时从磁盘读回来，都走这里）
@@ -971,12 +934,10 @@ onMounted(() => {
   });
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("mousemove", onMousemove);
-  window.addEventListener("resize", centerFocused);
   // 开机画面一直留到「库真的读完」再撤：中间那段是扫 Steam / Epic / WeGame，
   // 提前撤掉就会先闪一下空库、再蹦出卡片，比直接黑屏还难看。
   // allSettled 是因为扫描失败也得撤画面 —— 不然玩家卡在环形进度上出不来。
   void Promise.allSettled([lib.load(), lib.loadSettings()]).then(() => {
-    centerFocused();
     const left = Math.max(0, BOOT_MIN_MS - (performance.now() - bootAt));
     window.setTimeout(dismissBoot, left);
   });
@@ -995,7 +956,6 @@ onMounted(() => {
         const grew = result.games.length - lib.games.length;
         lib.apply(result.games, result.source, result.roots);
         if (grew > 0) showToast(`发现 ${grew} 部新游戏`);
-        void nextTick(centerFocused);
       }),
     );
     unsubscribers.push(
@@ -1010,7 +970,6 @@ onMounted(() => {
 onUnmounted(() => {
   window.removeEventListener("keydown", onKeydown);
   window.removeEventListener("mousemove", onMousemove);
-  window.removeEventListener("resize", centerFocused);
   for (const off of unsubscribers) off();
   if (toastTimer !== undefined) window.clearTimeout(toastTimer);
 });
@@ -1021,10 +980,16 @@ onUnmounted(() => {
   <div class="app" :style="{ '--accent-glow': accentOf(lib.selected) }">
     <Backdrop :game="lib.selected" />
 
-    <div v-show="!gridOpen" class="home" :class="{ expanded: detailOpen || settingsOpen }">
-    <TopBar :name="lib.profileName" :avatar="lib.profileAvatar" @profile="openSettings" />
+    <div class="home" :class="{ expanded: detailOpen || settingsOpen }">
+    <!-- 网格模式整页给卡片区用，顶栏让位（它的位置由网格标题行接管） -->
+    <TopBar
+      v-show="!gridOpen"
+      :name="lib.profileName"
+      :avatar="lib.profileAvatar"
+      @profile="openSettings"
+    />
 
-    <section class="meta" :style="{ '--accent': accentOf(lib.selected) }">
+    <section v-show="!gridOpen" class="meta" :style="{ '--accent': accentOf(lib.selected) }">
       <p v-if="lib.loading" class="status">正在扫描游戏库…</p>
       <p v-else-if="lib.error" class="status error">{{ lib.error }}</p>
       <p v-else-if="!lib.selected" class="status">游戏库是空的</p>
@@ -1045,27 +1010,29 @@ onUnmounted(() => {
       </template>
     </section>
 
-    <section ref="railEl" class="rail" aria-label="游戏">
-      <div ref="trackEl" class="track" :style="{ transform: `translate3d(calc(${shift}px + var(--rail-nudge)), 0, 0)` }">
-        <template v-for="(game, i) in lib.games" :key="game.key">
-          <GameCard
-            v-if="inRenderWindow(i)"
-            :game="game"
-            :focused="i === lib.index"
-            :favorite="lib.favorites.has(game.key)"
-            :icon-pos="lib.iconPos"
-            :recent="game.key === lib.lastPlayedKey"
-            @pick="lib.focusKey(game.key)"
-            @activate="activate"
-          />
-          <!-- 占位：顶住轨道宽度，但不创建图片和事件 -->
-          <div v-else class="card-slot" aria-hidden="true" />
-        </template>
-      </div>
-    </section>
+    <!--
+      卡片区只有一处 DOM：卡片带（rail）和网格（grid）是同一批 .cell 换布局，
+      所以来回切换是「散开 / 收拢」的 FLIP，而不是一页消失、另一页出现。
+    -->
+    <LibraryGrid
+      ref="gridRef"
+      :mode="gridOpen ? 'grid' : 'rail'"
+      :index="lib.index"
+      :games="lib.games"
+      :start-key="lib.selected?.key"
+      :icon-pos="lib.iconPos"
+      :favorites="lib.favorites"
+      @close="closeGrid"
+      @focus="lib.focusKey"
+      @select="pickFromGrid"
+      @launch="launchFromGrid"
+      @detail="detailFromGrid"
+      @favorite="favoriteFromGrid"
+      @moving="gridMoving = $event"
+    />
 
     <!-- 库超过一屏时给一条发丝进度线：知道自己排到第几个，比空翻好 -->
-    <div v-if="lib.games.length > 12" class="rail-progress" aria-hidden="true">
+    <div v-if="!gridOpen && lib.games.length > 12" class="rail-progress" aria-hidden="true">
       <span
         class="thumb"
         :style="{ left: `calc(${(lib.index / Math.max(1, lib.games.length - 1)) * 100}% - 3%)` }"
@@ -1092,24 +1059,6 @@ onUnmounted(() => {
     />
 
     </div>
-
-    <Transition name="page">
-      <LibraryGrid
-        v-if="gridOpen"
-        ref="gridRef"
-        :games="lib.games"
-        :start-key="lib.selected?.key"
-        :icon-pos="lib.iconPos"
-        :favorites="lib.favorites"
-        @close="closeGrid"
-        @focus="lib.focusKey"
-        @select="pickFromGrid"
-        @launch="launchFromGrid"
-        @detail="detailFromGrid"
-        @favorite="favoriteFromGrid"
-        @moving="gridMoving = $event"
-      />
-    </Transition>
 
     <!-- 下面这三层提到 .app 根上：首页和网格都要用。
          以前它们挂在 .home 里（`v-show="!gridOpen"`），网格一开就整个被藏起来，
@@ -1173,32 +1122,6 @@ onUnmounted(() => {
   position: relative;
   height: 100%;
   isolation: isolate;
-}
-
-/*
- * 进出「全部游戏」：整页淡入淡出 + 一点点位移/缩放。
- *
- * 用 <Transition> 而不是组件里的 CSS animation：离场也要有动画，
- * 而 v-if 一卸载元素就没了，animation 根本没机会播。
- */
-.page-enter-active,
-.page-leave-active {
-  transition:
-    opacity 0.22s var(--ease-out),
-    transform 0.26s var(--ease-out);
-}
-
-.page-enter-from,
-.page-leave-to {
-  opacity: 0;
-  transform: translateY(1.6vh) scale(0.985);
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .page-enter-active,
-  .page-leave-active {
-    transition: none;
-  }
 }
 
 .app > :deep(.backdrop) {
