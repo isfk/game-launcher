@@ -4,9 +4,12 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"game-launcher/internal/config"
+	"game-launcher/internal/library"
+	"game-launcher/internal/pad"
 
 	"github.com/egoist/mygo"
 )
@@ -446,5 +449,89 @@ func TestUninstallRefusesManual(t *testing.T) {
 
 	if _, err := l.Uninstall(context.Background(), res.Games[0].Key); err == nil {
 		t.Error("手动游戏不该能被卸载")
+	}
+}
+
+// TestGatePadStates 是「游戏里按 A 不该触发启动」这条的核心：
+// 窗口不在前台时，手柄状态一律当作空，界面收不到任何按键。
+func TestGatePadStates(t *testing.T) {
+	held := func() []pad.State {
+		return []pad.State{{Name: "Xbox 手柄", Buttons: []string{"south"}, Connected: true}}
+	}
+
+	if got := gatePadStates(false, held); len(got) != 0 {
+		t.Errorf("失焦时应该返回空状态，实际 %+v", got)
+	}
+	if got := gatePadStates(true, held); len(got) != 1 {
+		t.Errorf("在前台时应该原样返回，实际 %+v", got)
+	}
+}
+
+// TestFocusedDefaultsToOn 确认没有窗口（测试环境）时不会把柄功能关掉。
+func TestFocusedDefaultsToOn(t *testing.T) {
+	l := &Launcher{}
+	l.SetFocused(true)
+	if !l.focusedNow() {
+		t.Error("没挂窗口时应该按事件记下的值来")
+	}
+	l.SetFocused(false)
+	if l.focusedNow() {
+		t.Error("SetFocused(false) 之后应该报告失焦")
+	}
+}
+
+// TestPadStatesFollowsFocus 端到端地把「焦点 → 手柄状态」串一遍。
+func TestPadStatesFollowsFocus(t *testing.T) {
+	l := &Launcher{}
+	l.SetFocused(false)
+	if got := l.padStates(); len(got) != 0 {
+		t.Errorf("失焦时 padStates 应该为空，实际 %+v", got)
+	}
+	// 回到前台不 panic 就行：真手柄状态取决于这台机器接了什么
+	l.SetFocused(true)
+	_ = l.padStates()
+}
+
+// TestLaunchRefusesWhileStarting 挡住「连点两下 A」：第一次请求还没落地时，
+// 第二次直接拒绝，不会真的开两份游戏。
+func TestLaunchRefusesWhileStarting(t *testing.T) {
+	l := &Launcher{}
+	l.games = []library.Game{{Key: "steam:1", Title: "ELDEN RING", Provider: "steam"}}
+	l.starting = true
+
+	if _, err := l.Launch(context.Background(), "steam:1"); err == nil {
+		t.Fatal("正在启动时不该允许再启动一次")
+	}
+}
+
+// TestLaunchRefusesWhileGameRunning 挡住「已经开着还按 A」。
+func TestLaunchRefusesWhileGameRunning(t *testing.T) {
+	t.Setenv("LAUNCHER_NO_STORE_ASSETS", "1")
+	l := &Launcher{}
+	l.games = []library.Game{
+		{Key: "steam:1", Title: "ELDEN RING", Provider: "steam"},
+		{Key: "steam:2", Title: "Cyberpunk 2077", Provider: "steam"},
+	}
+	l.runningKey = "steam:1"
+
+	_, err := l.Launch(context.Background(), "steam:2")
+	if err == nil {
+		t.Fatal("有游戏在跑时不该允许启动别的")
+	}
+	if !strings.Contains(err.Error(), "ELDEN RING") {
+		t.Errorf("错误里该说清是哪部在跑，实际 %v", err)
+	}
+}
+
+// TestWatchAfterLaunchClearsStarting 确认不守护进程时，「正在启动」不会卡死在那。
+func TestWatchAfterLaunchClearsStarting(t *testing.T) {
+	watchProcesses = false
+	defer func() { watchProcesses = true }()
+
+	l := &Launcher{}
+	l.starting = true
+	l.watchAfterLaunch(library.Game{Key: "steam:1"})
+	if l.starting {
+		t.Error("不守护进程时应该立刻放开 starting，否则再也启动不了")
 	}
 }

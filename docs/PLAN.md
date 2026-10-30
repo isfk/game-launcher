@@ -388,6 +388,25 @@ Steam 之外还有一堆「双击 exe 就开」的游戏，所以给了两条入
 - 删掉两个已无引用的壳：`DetailPanel.vue`（最早那版弹窗）和 `ModalShell.vue`（设置迁到 `PanelShell` 之后）
 - `steam.tagsOf()` 加了 `sort.Strings`：`tags` 是 map，Go 遍历顺序随机，不排序同一部游戏两次打开标签顺序会变
 
+## 4.34.6 手柄只在窗口前台时生效（Windows 双启动 Bug）
+
+**现象**：进游戏后在游戏里按 A，启动器又启动了一次游戏。
+
+**原因**：手柄是**全局轮询**的（`gamepad.Pads()` 直接问 XInput），跟窗口有没有焦点无关。
+启动器虽然退到后台，60Hz 循环还在读，按 A 照样变成一次「启动游戏」意图。
+
+**修法（三道闸）**：
+
+1. **失焦就不读**（`Launcher.padStates` / `gatePadStates`）：窗口不在前台时返回空切片。
+   空帧还有个副作用是好的——它会把界面上的「按住」状态清掉，回到前台不会残留连发。
+2. **焦点靠轮询兜底**（`focusedNow`）：`win.OnFocus/OnBlur` 只用来记状态，
+   真正判定是每 200ms 问一次 `win.IsFocused()`
+   （Windows 上就是 `GetForegroundWindow() == hwnd`，最实在，也不怕事件漏送）。
+   没有窗口时（测试）退回事先记下的值，不会被误判成失焦。
+3. **防双开**（`Launch` 的 `starting` / `runningKey`）：
+   发出启动请求到进程被确认之间有个窗口期，这段时间再点 A 直接拒绝；
+   已经有游戏在跑时也拒绝，并报出是哪部在跑。
+
 ## 4.35 层级（z-index）
 
 全应用只从 `style.css` 的层级表取，别写裸数字：
@@ -530,6 +549,8 @@ bun run dev                            # mygo dev：Vite + 开发版应用
 - `app_test.go`：空库退回 demo、缓存与 refresh、真实库识别、未知 key 与 demo 条目拒绝启动、
   手动添加（取消/重复/路径失效）、移除（连收藏一起清、不动文件）、手动游戏启动与拒卸载
 - `internal/manual/*_test.go`：路径哈希稳定性、文件名推导、可执行校验、记录转换
+- `app_test.go` 里另有`TestGatePadStates` / `TestPadStatesFollowsFocus`（失焦不推手柄）、
+  `TestLaunchRefusesWhileStarting` / `TestLaunchRefusesWhileGameRunning`（防双开）
 - ⚠️ 测试里务必 `t.Setenv("LAUNCHER_NO_STORE_ASSETS", "1")`：否则重扫会去
   `store.steampowered.com` 拉图，直连超时会让 `go test` 挂几分钟（CPU 时间为 0，很像卡死）
 - 浏览器里打开 `http://localhost:5173` 可脱离应用调样式（store 会自动用本地样例数据）

@@ -141,6 +141,10 @@ export const Launcher = {
   setFavorite(key: string, favorite: boolean): Promise<Settings> {
     return call("Launcher.SetFavorite", key, favorite);
   },
+  /** SetFocused 由窗口的焦点事件调用。 */
+  setFocused(on: boolean): Promise<void> {
+    return call("Launcher.SetFocused", on);
+  },
   /** SetSoundEnabled 记住界面音效开关。 */
   setSoundEnabled(enabled: boolean): Promise<Settings> {
     return call("Launcher.SetSoundEnabled", enabled);

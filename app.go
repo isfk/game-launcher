@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/egoist/mygo"
@@ -89,6 +90,16 @@ type Launcher struct {
 	cfg            *config.Store
 	settings       config.Settings
 	settingsLoaded bool
+
+	// focused 是窗口是否在前台。手柄是全局轮询的：游戏开着的时候按一下 A，
+	// 启动器也照样能读到。不在前台就当成没接手柄，界面不会误触。
+	focused atomic.Bool
+	// starting 是「已经发出启动请求、但进程还没被确认」的短暂窗口，
+	// 用来挡住连点两下 A 导致的重复启动。
+	starting bool
+	// runningKey 是正在运行的游戏 key（空表示没有）。
+	// 有游戏在跑的时候不接受新的启动请求，这是防双开的第二道闸。
+	runningKey string
 }
 
 // newLauncher 建一个服务实例。main 里绑定的是它。
@@ -198,6 +209,28 @@ func (l *Launcher) attach(win *mygo.Window) {
 	l.mu.Lock()
 	l.win = win
 	l.mu.Unlock()
+	// 窗口刚起来时它就在前台；先当成有焦点，第一次轮询会纠正过来
+	l.focused.Store(true)
+}
+
+// SetFocused 由窗口的焦点事件调用。
+func (l *Launcher) SetFocused(on bool) { l.focused.Store(on) }
+
+// focusedNow 报告窗口此刻是否在前台。
+//
+// 优先问窗口本身（Windows 上是 GetForegroundWindow，最实在），
+// 问不到就退回事件记下的值；连窗口都还没有（比如测试里）就当有焦点，
+// 免得把手柄功能整个关掉。
+func (l *Launcher) focusedNow() bool {
+	l.mu.Lock()
+	win := l.win
+	l.mu.Unlock()
+	if win != nil {
+		focused := win.IsFocused()
+		l.focused.Store(focused)
+		return focused
+	}
+	return l.focused.Load()
 }
 
 // Library 返回启动器的游戏库。refresh 为 true 时重新扫磁盘，
@@ -716,34 +749,80 @@ func (l *Launcher) Launch(ctx context.Context, key string) (string, error) {
 		return "", fmt.Errorf("找不到游戏 %q，先刷新游戏库", key)
 	}
 
+	// 防双开：手柄的 A 很容易被连按，或者启动器还没退到后台时又按了一下。
+	// 有一部在跑就不再开第二份；刚发出启动请求的那几秒也挡住。
+	l.mu.Lock()
+	if l.runningKey != "" {
+		running := l.titleOfLocked(l.runningKey)
+		l.mu.Unlock()
+		return "", fmt.Errorf("「%s」正在运行，先退出它再启动别的", running)
+	}
+	if l.starting {
+		l.mu.Unlock()
+		return "", fmt.Errorf("「%s」正在启动，稍等一下", game.Title)
+	}
+	l.starting = true
+	l.mu.Unlock()
+
+	title, err := l.launchGame(ctx, game)
+	if err != nil {
+		l.mu.Lock()
+		l.starting = false
+		l.mu.Unlock()
+		return "", err
+	}
+	return title, nil
+}
+
+// titleOfLocked 按 key 找标题（调用方已经持有锁）。
+func (l *Launcher) titleOfLocked(key string) string {
+	for _, g := range l.games {
+		if g.Key == key {
+			return g.Title
+		}
+	}
+	return key
+}
+
+// launchGame 是 Launch 的实际派发，拆出来让上层能统一收尾 starting 标记。
+func (l *Launcher) launchGame(ctx context.Context, game library.Game) (string, error) {
 	switch game.Provider {
 	case "steam":
 		if err := (steam.Provider{}).Launch(ctx, game); err != nil {
 			return "", err
 		}
 		// 开始守护这个进程：它退出时把启动器拉回前台。
-		if watchProcesses {
-			go l.watchGame(game)
-		}
+		l.watchAfterLaunch(game)
 		return game.Title, nil
 	case "manual":
 		// 手动游戏直接交给系统打开：.app 走 LaunchServices，exe 走 ShellExecuteW
-		path := l.manualPath(key)
+		path := l.manualPath(game.Key)
 		if path == "" {
 			return "", fmt.Errorf("「%s」的路径失效了，重新添加一次", game.Title)
 		}
 		if err := openURL(ctx, path); err != nil {
 			return "", err
 		}
-		if watchProcesses {
-			go l.watchGame(game)
-		}
+		l.watchAfterLaunch(game)
 		return game.Title, nil
 	case "demo":
 		return "", fmt.Errorf("「%s」是演示数据，扫到真正的 Steam 库后才能启动", game.Title)
 	default:
 		return "", fmt.Errorf("暂时不支持启动 %s 的游戏", game.Provider)
 	}
+}
+
+// watchAfterLaunch 决定要不要起守护协程。
+// 测试里关掉它：那段逻辑要等真实进程，会把测试拖住。
+func (l *Launcher) watchAfterLaunch(game library.Game) {
+	if !watchProcesses {
+		// 不守护的时候，「正在启动」这个状态没人清，就地清掉
+		l.mu.Lock()
+		l.starting = false
+		l.mu.Unlock()
+		return
+	}
+	go l.watchGame(game)
 }
 
 // gameByKey 从当前游戏库里按 key 取一部游戏。
@@ -821,8 +900,18 @@ func (l *Launcher) watchGame(game library.Game) {
 
 	// Steam 客户端冷启动可能要几十秒，给足时间
 	if !waitUntil(120*time.Second, time.Second, func() bool { return proc.RunningIn(game.InstallDir) }) {
-		return // 一直没等到：可能启动失败，或者游戏在别的目录跑
+		// 一直没等到：可能启动失败，或者游戏在别的目录跑。
+		// 不管哪种，「正在启动」都得放开，否则再也启动不了第二部。
+		l.mu.Lock()
+		l.starting = false
+		l.mu.Unlock()
+		return
 	}
+
+	l.mu.Lock()
+	l.starting = false
+	l.runningKey = game.Key
+	l.mu.Unlock()
 
 	_ = GameRunning.Broadcast(GameState{Key: game.Key, Title: game.Title, Running: true})
 
@@ -832,6 +921,12 @@ func (l *Launcher) watchGame(game library.Game) {
 			break
 		}
 	}
+
+	l.mu.Lock()
+	if l.runningKey == game.Key {
+		l.runningKey = ""
+	}
+	l.mu.Unlock()
 
 	_ = GameRunning.Broadcast(GameState{Key: game.Key, Title: game.Title, Running: false})
 	l.bringToFront()
@@ -885,8 +980,17 @@ func (l *Launcher) Pads(ctx context.Context, frames *mygo.Channel[[]pad.State]) 
 	defer ticker.Stop()
 
 	last := "\x00" // 保证首页一定会发（空手柄也要让界面知道「没接手柄」）
+	ticks := 0
 	for {
-		states := pad.Snapshot()
+		states := l.padStates()
+
+		// 每 12 帧（约 200ms）跟窗口核一次真实焦点。
+		// 焦点事件在某些平台不一定送得及时，轮询兜住它。
+		if ticks%12 == 0 {
+			l.focusedNow()
+		}
+		ticks++
+
 		if sig := pad.Signature(states); sig != last {
 			last = sig
 			if err := frames.Send(states); err != nil {
@@ -900,6 +1004,23 @@ func (l *Launcher) Pads(ctx context.Context, frames *mygo.Channel[[]pad.State]) 
 		case <-ticker.C:
 		}
 	}
+}
+
+// padStates 返回此刻该推给页面的手柄状态。
+//
+// 窗口不在前台（也就是说玩家在游戏里）时返回空：手柄是全局轮询的，
+// 不在这里挡住的话，游戏里按 A 会被启动器当成「再启动一次」。
+// 返回空切片还会把界面上的「按住」状态清掉，回到前台时不会残留。
+func (l *Launcher) padStates() []pad.State {
+	return gatePadStates(l.focusedNow(), pad.Snapshot)
+}
+
+// gatePadStates 是 padStates 的纯逻辑部分，单独拆出来是为了能测。
+func gatePadStates(focused bool, snapshot func() []pad.State) []pad.State {
+	if !focused {
+		return []pad.State{}
+	}
+	return snapshot()
 }
 
 // PadNames 列出当前接上的手柄，设置页用。

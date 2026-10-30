@@ -64,6 +64,11 @@ func main() {
 		go launcher.WatchLibrary(ctx)
 		win.OnClose(func(*mygo.CloseEvent) { cancel() })
 
+		// 手柄是全局轮询的，跟窗口有没有焦点无关：游戏里按 A，启动器照样读得到。
+		// 记下前台状态，失焦时后端就不再把手柄帧推给界面（见 Launcher.padStates）。
+		win.OnFocus(func() { launcher.SetFocused(true) })
+		win.OnBlur(func() { launcher.SetFocused(false) })
+
 		// Windows 的任务栏本身是 topmost 的：窗口只铺满显示器还不够，
 		// 还得自己也 topmost 才能盖住它。但失焦时必须撤掉，
 		// 否则游戏起来后会被这个窗口压在下面。
