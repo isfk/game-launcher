@@ -2,6 +2,8 @@ package steam
 
 import (
 	"context"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"strings"
@@ -199,5 +201,49 @@ func TestIsToolApp(t *testing.T) {
 		if got := isToolApp(c.m); got != c.want {
 			t.Errorf("%s: isToolApp = %v，想要 %v", c.name, got, c.want)
 		}
+	}
+}
+
+// TestBlankLogoIsDropped 覆盖「白条」问题：logo.png 若是一整片纯白，
+// 画到界面上就是一条白条，比没有 logo 还难看 —— 这种要当它不存在。
+func TestBlankLogoIsDropped(t *testing.T) {
+	root := t.TempDir()
+	appID := "1245620"
+
+	if err := os.MkdirAll(filepath.Join(root, "steamapps"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `"AppState" { "appid" "` + appID + `" "name" "白 Logo 测试" "StateFlags" "4" "installdir" "WhiteLogo" }`
+	if err := os.WriteFile(filepath.Join(root, "steamapps", "appmanifest_"+appID+".acf"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cacheDir := filepath.Join(root, "appcache", "librarycache", appID)
+	if err := os.MkdirAll(cacheDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// 一整片纯白的 logo
+	white := image.NewNRGBA(image.Rect(0, 0, 360, 90))
+	for i := range white.Pix {
+		white.Pix[i] = 0xff
+	}
+	logoFile, err := os.Create(filepath.Join(cacheDir, "logo.png"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := png.Encode(logoFile, white); err != nil {
+		t.Fatal(err)
+	}
+	logoFile.Close()
+
+	games, err := Scan(context.Background(), root)
+	if err != nil {
+		t.Fatalf("Scan: %v", err)
+	}
+	if len(games) != 1 {
+		t.Fatalf("应该扫到 1 部，实际 %d", len(games))
+	}
+	if got := games[0].Artwork.Logo; got != "" {
+		t.Errorf("纯白 logo 应该被丢掉，实际 %q", got)
 	}
 }

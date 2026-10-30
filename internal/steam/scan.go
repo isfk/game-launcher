@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 
+	"game-launcher/internal/imgcheck"
 	"game-launcher/internal/launch"
 	"game-launcher/internal/library"
 )
@@ -212,6 +213,12 @@ func artwork(lib, root, appid string) library.Artwork {
 	// Icon 不值得走 CDN，本地没有就空着
 	if art.Icon == "" {
 		art.Icon = ""
+	}
+
+	// 有些游戏的 logo.png 是一整片纯白（或者全透明）：画到界面上就是一条
+	// 白条，比没有 logo 还难看。这种情况当它不存在，界面会退回文字标题。
+	if imgcheck.BlankPath(art.Logo) {
+		art.Logo = ""
 	}
 	return art
 }

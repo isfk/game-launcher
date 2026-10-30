@@ -445,6 +445,28 @@ com.epicgames.launcher://apps/<AppName>?action=uninstall&silent=true
 不影响另一方；`Source` 用 `+` 拼起来（`"steam+epic"`、`"epic"`、`"manual"`、`"demo"`），
 界面按它显示「Steam + Epic · N 部」。库指纹也是两边拼起来（`librarySignature`）。
 
+## 4.37 logo 白条（`internal/imgcheck`）
+
+**现象**：标题区出现一条白条。
+
+**原因**：有些游戏的 `logo.png` 本身就是一片纯白（或者极浅灰渐变），
+画到深色界面上就是一条白带。它不是「没有 logo」，所以 `v-if` 拦不住。
+
+**修法**：在 Go 侧判定「视觉空白」，判为空白就当没有 logo——
+界面自然退回 `<h1>` 游戏名（有 logo 显示 logo，没有就显示名字）。
+
+为什么不在前端：页面加载图片走 `art://`（Windows 上是 `http://art.localhost`），
+属于独立源，画进 canvas 会被标记污染，`getImageData` 直接抛异常。
+
+判定规则（`imgcheck.Blank`，均匀抽样最多 4096 像素）：
+
+1. 全透明 → 空白
+2. 覆盖面积 < 95%（透明底上的白字 logo）→ **不是**空白，留着
+3. 铺满整幅，且「纯色」或「均值亮度 ≥ 0.88」→ 空白（白条/白底带）
+4. 白底黑字的牌子 → 不算（亮度跨度大、均值也够低）
+
+只对**本地文件**判定：CDN 地址一律放行，不为了判断多花一次网络请求。
+
 ## 4.35 层级（z-index）
 
 全应用只从 `style.css` 的层级表取，别写裸数字：
