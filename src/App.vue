@@ -177,12 +177,10 @@ function back() {
     detailOpen.value = false;
     return;
   }
-  sfx.back();
-  void leaveFullScreen();
-}
 
-async function leaveFullScreen() {
-  if (await Launcher.isFullScreen()) await Launcher.toggleFullScreen();
+  // 首页已经有层层浮层可关，剩下的一层就是首页本身：这里什么也不做。
+  // 尤其是**不要在这里退全屏**——以前按 B / Esc 会掉出全屏，
+  // 而全屏开关只应留在设置里（键盘另有 F 快捷键）。
 }
 
 async function toggleFullScreen() {

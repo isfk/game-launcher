@@ -51,7 +51,6 @@ const hints = computed<Hint[]>(() => {
       { cap: g.confirm.text, tone: g.confirm.tone, label: "启动" },
       { cap: g.detail.text, tone: g.detail.tone, label: "详情" },
       { cap: g.favorite.text, tone: g.favorite.tone, label: "收藏" },
-      { cap: g.back.text, tone: g.back.tone, label: "返回" },
       { cap: g.menu, tone: "pill", label: "设置" },
     ];
   }
@@ -80,7 +79,6 @@ const hints = computed<Hint[]>(() => {
     { cap: "X", label: "收藏" },
     { cap: "S", label: "设置" },
     { cap: "/", label: "搜索" },
-    { cap: "Esc", label: "返回" },
     { cap: "F", label: "全屏" },
     { cap: "R", label: "刷新" },
   ];
