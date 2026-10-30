@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from "vue";
 import { Launcher } from "../mygo";
+import { providerLabel } from "../lib/format";
 import { sfx } from "../lib/sfx";
 import PanelShell from "./PanelShell.vue";
 import { usePanelNav } from "../composables/usePanelNav";
@@ -67,6 +68,8 @@ const nav = usePanelNav(() => [
   { key: "sortdir", activate: () => void lib.toggleSortDir() },
   { key: "filter", activate: () => lib.cyclePlatformFilter() },
   { key: "unhide", activate: () => void lib.unhideAll() },
+  // 每个被隐藏的游戏单独一条：可以只恢复其中一部
+  ...lib.hiddenGames.map((g) => ({ key: `unhide:${g.key}`, activate: () => void lib.toggleHidden(g.key, false) })),
   { key: "sound", activate: () => toggleSound() },
   { key: "quit", activate: () => void Launcher.quit() },
 ]);
@@ -102,6 +105,17 @@ function cycleIcon() {
 }
 
 defineExpose({ move: nav.move, activate: nav.activate, reset: nav.reset, isFocused: nav.isFocused });
+
+/**
+ * focusTo 按 key 找下标再移动鼠标焦点。
+ *
+ * 不写死数字：设置项会随状态增删（隐藏列表就是动态的），
+ * 硬编码下标一旦对不上，鼠标悬停就会把焦点挪到别的行上去。
+ */
+function focusTo(key: string) {
+  const i = nav.list.value.findIndex((item) => item.key === key);
+  if (i >= 0) nav.focusTo(i);
+}
 
 const adding = ref(false);
 
@@ -150,7 +164,7 @@ function toggleSound() {
           <button
             class="btn"
             :class="{ focused: nav.isFocused('fullscreen') }"
-            @mouseenter="nav.focusTo(0)"
+            @mouseenter="focusTo('fullscreen')"
             @click="$emit('toggleFullscreen')"
           >
             切换
@@ -166,7 +180,7 @@ function toggleSound() {
             class="btn"
             :class="{ focused: nav.isFocused('add') }"
             :disabled="adding"
-            @mouseenter="nav.focusTo(1)"
+            @mouseenter="focusTo('add')"
             @click="addGame"
           >
             {{ adding ? "…" : "添加" }}
@@ -178,7 +192,7 @@ function toggleSound() {
             <span class="label">重新扫描游戏库</span>
             <span class="desc">重新读取 Steam 的 libraryfolders.vdf 与 appmanifest</span>
           </div>
-          <button class="btn" :class="{ focused: nav.isFocused('rescan') }" @mouseenter="nav.focusTo(2)" @click="$emit('rescan')">
+          <button class="btn" :class="{ focused: nav.isFocused('rescan') }" @mouseenter="focusTo('rescan')" @click="$emit('rescan')">
             扫描
           </button>
         </li>
@@ -191,7 +205,7 @@ function toggleSound() {
           <button
             class="btn"
             :class="{ focused: nav.isFocused('iconpos') }"
-            @mouseenter="nav.focusTo(3)"
+            @mouseenter="focusTo('iconpos')"
             @click="cycleIcon"
           >
             {{ iconPosLabel }}
@@ -206,7 +220,7 @@ function toggleSound() {
           <button
             class="btn"
             :class="{ focused: nav.isFocused('sortby') }"
-            @mouseenter="nav.focusTo(4)"
+            @mouseenter="focusTo('sortby')"
             @click="lib.cycleSortBy()"
           >
             {{ SORT_LABEL[lib.sortBy] ?? "最近游玩" }}
@@ -221,7 +235,7 @@ function toggleSound() {
           <button
             class="btn"
             :class="{ focused: nav.isFocused('sortdir') }"
-            @mouseenter="nav.focusTo(5)"
+            @mouseenter="focusTo('sortdir')"
             @click="lib.toggleSortDir()"
           >
             {{ lib.sortDir === "asc" ? "升序" : "降序" }}
@@ -236,7 +250,7 @@ function toggleSound() {
           <button
             class="btn"
             :class="{ focused: nav.isFocused('filter') }"
-            @mouseenter="nav.focusTo(6)"
+            @mouseenter="focusTo('filter')"
             @click="lib.cyclePlatformFilter()"
           >
             {{ FILTER_LABEL[lib.platformFilter] ?? "全部" }}
@@ -245,19 +259,35 @@ function toggleSound() {
 
         <li>
           <div>
-            <span class="label">恢复隐藏的游戏</span>
+            <span class="label">隐藏的游戏</span>
             <span class="desc">
-              {{ lib.hiddenCount ? `有 ${lib.hiddenCount} 部被藏在启动器里（客户端没动）` : "没有被隐藏的游戏" }}
+              {{ lib.hiddenCount ? `共 ${lib.hiddenCount} 部（客户端没动，随时可恢复）` : "没有被隐藏的游戏" }}
             </span>
           </div>
           <button
             class="btn"
             :class="{ focused: nav.isFocused('unhide') }"
             :disabled="!lib.hiddenCount"
-            @mouseenter="nav.focusTo(7)"
+            @mouseenter="focusTo('unhide')"
             @click="lib.unhideAll()"
           >
-            {{ lib.hiddenCount ? `恢复 ${lib.hiddenCount} 部` : "无" }}
+            {{ lib.hiddenCount ? "全部恢复" : "无" }}
+          </button>
+        </li>
+
+        <!-- 每个隐藏的游戏单独一行，只想放回某一部就点它自己的「恢复」 -->
+        <li v-for="g in lib.hiddenGames" :key="g.key" class="hidden-game">
+          <div>
+            <span class="label">{{ g.title }}</span>
+            <span class="desc">{{ providerLabel(g.provider) }} · 已隐藏</span>
+          </div>
+          <button
+            class="btn"
+            :class="{ focused: nav.isFocused(`unhide:${g.key}`) }"
+            @mouseenter="focusTo(`unhide:${g.key}`)"
+            @click="lib.toggleHidden(g.key, false)"
+          >
+            恢复
           </button>
         </li>
 
@@ -266,7 +296,7 @@ function toggleSound() {
             <span class="label">界面音效</span>
             <span class="desc">{{ sound ? "开" : "关" }}</span>
           </div>
-          <button class="btn" :class="{ focused: nav.isFocused('sound') }" @mouseenter="nav.focusTo(8)" @click="toggleSound">
+          <button class="btn" :class="{ focused: nav.isFocused('sound') }" @mouseenter="focusTo('sound')" @click="toggleSound">
             {{ sound ? "关闭" : "打开" }}
           </button>
         </li>
@@ -286,7 +316,7 @@ function toggleSound() {
           <button
             class="btn danger"
             :class="{ focused: nav.isFocused('quit') }"
-            @mouseenter="nav.focusTo(9)"
+            @mouseenter="focusTo('quit')"
             @click="Launcher.quit()"
           >
             退出

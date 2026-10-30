@@ -516,7 +516,7 @@ WeGame 的 `tencent://` 协议需要它内部的游戏 id，没有稳定来源�
 
 | 功能 | 实现 |
 |---|---|
-| **隐藏（仅启动器内）** | `Settings.Hidden []string` + `SetHidden(key, bool)`。不碰客户端、不碰磁盘，随时可恢复；详情面板「隐藏」按钮，设置里「恢复隐藏的游戏（N）」 |
+| **隐藏（仅启动器内）** | `Settings.Hidden []string` + `SetHidden(key, bool)`。不碰客户端、不碰磁盘。详情面板「隐藏」按钮；设置里「隐藏的游戏」段：顶部「全部恢复」，下面**每个被隐藏的游戏单独一行**（图标+标题+平台 + 自己的「恢复」），可以只放回其中一部 |
 | **排序** | `Settings.SortBy`（recent / name / playtime / size）+ `SortDir`（asc / desc），后端 `SetSort` 用 `NormalizeSortBy/Dir` 收敛非法值。**收藏永远置顶**，排序只决定同类之内 |
 | **平台筛选** | 顶栏每组平台可点击（再点一次取消）；设置里也能轮转：全部 → Steam → Epic → WeGame → 手动 |
 | **打开安装目录** | `OpenFolder(key)` → 交给系统文件管理器（`openURL(installDir)`），目录不存在会报错。详情面板「安装位置」那一行即可点击 |

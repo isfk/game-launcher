@@ -39,6 +39,8 @@ export const useLibrary = defineStore("library", () => {
   const selected = computed<Game | undefined>(() => games.value[index.value]);
   const isDemo = computed(() => source.value === "demo");
   const hiddenCount = computed(() => hidden.value.size);
+  /** 被隐藏的游戏本体（设置面板要逐条列出、逐条恢复）。 */
+  const hiddenGames = computed(() => allGames.value.filter((g) => hidden.value.has(g.key)));
 
   /**
    * loadSettings 从后端读一次用户设置（音效开关、收藏）。
@@ -390,6 +392,7 @@ export const useLibrary = defineStore("library", () => {
     providerCounts,
     hidden,
     hiddenCount,
+    hiddenGames,
     sortBy,
     sortDir,
     platformFilter,
