@@ -192,7 +192,10 @@ UserLocalConfigStore → Software → Valve → Steam → Apps → <appid>
 
 | 操作 | 按键（south = 下方那颗） | Xbox 显示 | PS 显示 | Switch 显示 |
 |---|---|---|---|---|
-| 切换游戏 | 十字键 / 左摇杆 左右 | — | — | — |
+| 切换游戏（首页） | lb / rb | LB | L1 | L |
+| 切换平台（网格） | lb / rb | RB | R1 | R |
+| 全部游戏 | back | View | Create | − |
+| 设置面板翻页 | lb / rb | LB / RB | L1 / R1 | L / R |
 | 详情（首页；十字键上也开） | north | Y | △ | X |
 | 面板内选焦点 | 十字键 / 左摇杆 上下 | — | — | — |
 | 确认（焦点项） | south | A | ✕ | B |
@@ -226,6 +229,7 @@ UserLocalConfigStore → Software → Valve → Steam → Apps → <appid>
 | 操作 | 手柄 | 键盘 | 备注 |
 |---|---|---|---|
 | 移动光标 | 十字键 / 左摇杆 | ↑ ↓ ← → | |
+| 换平台 | LB / RB | 鼠标点胶囊 / PgUp·PgDn 不给（用得少）| 和标题行胶囊是同一份状态：肩键直接换，↑ 上到胶囊行是精确挑 |
 | 启动 | A / ✕ / B | Enter / Space | **启动成功才收起网格**，失败（演示数据、文件没了）就留在网格里看原因 |
 | 详情 | Y / △ / X | Y | 打开详情才收起网格（详情抽屉住在首页那层）|
 | 收藏 | X / □ / Y | X | 光标不动，星标就地亮 |
@@ -246,7 +250,15 @@ UserLocalConfigStore → Software → Valve → Steam → Apps → <appid>
 |---|---|---|
 | 鼠标 | 按住卡片直接拖 | 松手即落盘 |
 | 键盘 | 网格里按 `M`，或点标题栏的「用方向键调」| 方向键挪、Enter 放下、Esc 取消 |
-| 手柄 | 设置面板 →「调整游戏顺序」 | 同上，A 放下 / B 取消 |
+| 手柄 | 网格里**长按 Y**（≥500ms） | 方向键挪、A 放下、B 退出；短按 Y 仍是详情 |
+
+手柄没有指针，所以它用长按：`Y` 起手先挂一个 500ms 的计时器，
+按住够久就进搬动模式，按没够就松开 —— 那还是原来的「详情」。
+入口只有这三条，设置面板里**不再有**「全部游戏 / 平台筛选 / 调整游戏顺序」——
+那些行只是把已经能做的事又列一遍，属于冗余；手柄进网格改走 `View`（`back`）键，
+换平台走网格里的 LB / RB。
+
+`usePad` 因此会多发一种 `release` 意图：只发按下的话，长按和短按根本分不出来。
 
 手感上的三个约束（都是踩过坑才加的）：
 
@@ -260,18 +272,29 @@ UserLocalConfigStore → Software → Valve → Steam → Apps → <appid>
 没写进 `Order` 的新游戏排在最后；`SetOrder([])` 清掉自定义顺序并回落到最近游玩，
 `SetSort` 遇到「轮到 manual 却没有顺序」也自己回落，不让界面停在一个排不出来的档。
 
-**顺序也统一**：提示条和网格标题栏都按「导航 → 启动 → 详情 → 收藏 → 设置 → 搜索 →
-其余（全部游戏 / 全屏 / 刷新）→ 返回」排列，首页与网格一模一样，只换首项的措辞。
+**顺序也统一**：提示条按「导航 → 肩键 → 启动 → 详情 → 收藏 → 设置 → 其余（全部游戏 /
+全屏 / 刷新）→ 返回」排列，首页与网格一模一样，只换首项的措辞。
 
 **一个键只有一个意思**：A 永远是启动、Y 永远是详情、X 永远是收藏、B/Esc 永远是返回。
 首页的 ↑ 只是个额外便利（对着「往上看详情」），网格里 ↑ 是移动，所以两边都认 Y；
 手柄十字键上在首页也开详情（与键盘 ↑ 对齐），在网格里则是向上移动一格。
 
-提示条会跟着最近一次输入切换（`App.vue` 的 `usingPad` → `HintBar` 的 `pad` prop），
-并且按层次换内容（`HintBar` 的 `context`：`home` / `detail` / `settings`）——
+提示条会跟着最近一次输入切换，并且按层次换内容（`HintBar` 的 `context`：
+`home` / `detail` / `settings` / `grid` / `move` / `search`）——
 首页能左右翻卡片、详情里能上下选按钮，挂同一排提示等于没提示。
 
-键位符号表在 `src/lib/glyphs.ts`（纯函数，可直接 `bun -e` 验证）。
+**输入方式本身也是共享状态**：`usingPad` / `padKind` 放在 `src/lib/input.ts`，
+不再由 `App.vue` 持有再往下传 —— 因为除了提示条，**按钮上的字**也要跟着换：
+网格、设置、搜索的关闭按钮在手柄模式下直接画返回键（Xbox `B` / PS `○` / Switch `A`），
+键鼠模式下才画 `✕`。画一个 `✕` 给手柄玩家看，等于让他猜「哪个键是 ✕」。
+
+键位符号表在 `src/lib/glyphs.ts`（纯函数，可直接 `bun -e` 验证）：
+`prev` / `next`（肩键：LB·RB / L1·R1 / L·R）、`view`（View / Create / −）也在里面。
+
+**`.vue` 里的 script 改动 tsc 查不到**：`bun run typecheck` 只跑 `tsc --noEmit`，
+SFC 里的 `<script setup>` 不参与；`vue-tsc` 那份装的是老版本，跟当前 TypeScript 不兼容（`./lib/tsc` 已经被 exports 挡掉）。
+所以改了 `.vue` 的 script 就必须真跑一遍界面 —— 踩过的坑：`SearchBar` 里用了 `glyphsFor` 却没 import，
+编译期毫无反应，运行期整个搜索框渲染不出来（`searchOpen` 是 true，DOM 里没有 `.search`）。
 
 ## 4.3.1 面板内的竖向导航
 
@@ -585,8 +608,8 @@ WeGame 的 `tencent://` 协议需要它内部的游戏 id，没有稳定来源�
 | 功能 | 实现 |
 |---|---|
 | **隐藏（仅启动器内）** | `Settings.Hidden []string` + `SetHidden(key, bool)`。不碰客户端、不碰磁盘。详情面板「隐藏」按钮；设置里「隐藏的游戏」段：顶部「全部恢复」，下面**每个被隐藏的游戏单独一行**（图标+标题+平台 + 自己的「恢复」），可以只放回其中一部 |
-| **排序** | `Settings.SortBy`（recent / name / playtime / size）+ `SortDir`（asc / desc），后端 `SetSort` 用 `NormalizeSortBy/Dir` 收敛非法值。**收藏永远置顶**，排序只决定同类之内 |
-| **平台筛选** | 顶栏每组平台可点击（再点一次取消）；设置里也能轮转：全部 → Steam → Epic → WeGame → 手动 |
+| **排序** | 只剩两档：`recent`（默认，最近玩过在前）与 `manual`（拖出来的顺序，存 `Settings.Order`）。字段 / 方向那套对启动器没意义，想按名字找用搜索。`recent` 下**收藏置顶**；`manual` 下不置顶（否则「把收藏挪下去」会被弹回顶部）|
+| **平台筛选** | 「全部游戏」标题行那三颗胶囊：可点（再点一次取消）、手柄 `LB / RB` 轮转、方向键 ↑ 上到胶囊行精确挑。首页不再显示统计 |
 | **打开安装目录** | `OpenFolder(key)` → 交给系统文件管理器（`openURL(installDir)`），目录不存在会报错。详情面板「安装位置」那一行即可点击 |
 
 **架构改动**：store 里把「后端给的完整列表」`allGames` 和「视图列表」`games(computed)` 分开。

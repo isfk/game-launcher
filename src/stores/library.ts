@@ -14,8 +14,8 @@ export const useLibrary = defineStore("library", () => {
   // 取消隐藏 / 换筛选时立刻能还原回来。
   const allGames = ref<Game[]>([]);
   const hidden = ref<Set<string>>(new Set());
+  // 只有两档：recent（默认，最近玩过的在前）与 manual（玩家拖出来的顺序）
   const sortBy = ref<string>("recent");
-  const sortDir = ref<string>("desc");
   const platformFilter = ref<string>(""); // "" = 全部平台
   // 自定义顺序（全部游戏里「调整顺序」写下的）。sortBy 为 manual 时生效。
   const order = ref<string[]>([]);
@@ -72,7 +72,6 @@ export const useLibrary = defineStore("library", () => {
       iconPos.value = s.iconPos || "bl";
       hidden.value = new Set(s.hidden ?? []);
       sortBy.value = s.sortBy || "recent";
-      sortDir.value = s.sortDir || "desc";
       order.value = s.order ?? [];
       favorites.value = new Set(s.favorites ?? []);
       applyProfile(p);
@@ -126,8 +125,6 @@ export const useLibrary = defineStore("library", () => {
     }
   }
 
-  /** 排序字段的轮转顺序，和设置面板里看到的一致。 */
-  const SORT_OPTIONS = ["recent", "name", "playtime", "size"] as const;
   /** 平台筛选的轮转顺序：全部 → 各平台 → 全部。 */
   const FILTER_OPTIONS = ["", "steam", "epic", "wegame", "manual"] as const;
 
@@ -162,26 +159,6 @@ export const useLibrary = defineStore("library", () => {
       } catch {
         // 单条失败不影响其他
       }
-    }
-  }
-
-  /** cycleSortBy 换一个排序字段并落盘。
-   *
-   * 调过自定义顺序的话，「自定义」也占一档：玩家能从它转出去，也能转回来。
-   */
-  async function cycleSortBy() {
-    const options: string[] = order.value.length ? [...SORT_OPTIONS, "manual"] : [...SORT_OPTIONS];
-    const i = options.indexOf(sortBy.value);
-    const next = options[(i + 1) % options.length] ?? "recent";
-    const keepKey = selected.value?.key;
-    sortBy.value = next;
-    reconcileFocus(keepKey);
-    if (!isMyGo()) return;
-    try {
-      const s = await Launcher.setSort(next, sortDir.value);
-      sortBy.value = s.sortBy || next;
-    } catch {
-      // 落盘失败先用内存值
     }
   }
 
@@ -224,29 +201,6 @@ export const useLibrary = defineStore("library", () => {
     } catch {
       // 落盘失败就先用内存里的顺序，下次启动回到磁盘上的状态
     }
-  }
-
-  /** toggleSortDir 切换升 / 降序并落盘。 */
-  async function toggleSortDir() {
-    const next = sortDir.value === "desc" ? "asc" : "desc";
-    const keepKey = selected.value?.key;
-    sortDir.value = next;
-    reconcileFocus(keepKey);
-    if (!isMyGo()) return;
-    try {
-      const s = await Launcher.setSort(sortBy.value, next);
-      sortDir.value = s.sortDir || next;
-    } catch {
-      // 落盘失败先用内存值
-    }
-  }
-
-  /** cyclePlatformFilter 在「全部 → Steam → Epic → WeGame → 手动」之间轮转。 */
-  function cyclePlatformFilter() {
-    const i = FILTER_OPTIONS.indexOf(platformFilter.value as (typeof FILTER_OPTIONS)[number]);
-    const next = FILTER_OPTIONS[(i + 1) % FILTER_OPTIONS.length] ?? "";
-    platformFilter.value = next;
-    index.value = 0; // 换了筛选，回到第一部
   }
 
   /** setPlatformFilter 直接指定筛选（顶栏点平台用）。 */
@@ -304,6 +258,25 @@ export const useLibrary = defineStore("library", () => {
     reconcileFocus(keepKey);
   }
 
+  /**
+   * lastPlayedKey 最近玩过的那一部（网格里给它挂「上次游玩」标签）。
+   *
+   * 只在默认排序下有主角意义：手动顺序里「最新」和「第一个」可能不是同一部，
+   * 所以这里单独算，不假设它一定排在第一。
+   */
+  const lastPlayedKey = computed(() => {
+    let best = "";
+    let at = 0;
+    for (const g of allGames.value) {
+      const t = g.lastPlayed ? Date.parse(g.lastPlayed) : 0;
+      if (t > at) {
+        at = t;
+        best = g.key;
+      }
+    }
+    return best;
+  });
+
   /** 顶栏用：按平台统计数量，顺序固定，没有的平台不出现。 */
   const providerCounts = computed(() => {
     const counts = new Map<string, number>();
@@ -317,18 +290,19 @@ export const useLibrary = defineStore("library", () => {
   });
 
   /**
-   * orderGames 排序：收藏永远置顶，同类之内按用户选的字段与方向。
+   * orderGames 排序：默认最近玩过的在前，玩家拖过之后按他摆的顺序。
+   *
+   * 为什么只有两档：排序字段/方向那套对「游戏启动器」没什么意义 ——
+   * 想按名字找就用搜索，想看最近玩的就照默认，想自己摆就拖。
+   * 少一档设置，就少一个要想「我现在是按什么排的」的地方。
    *
    * 排序放在数据层而不是渲染层：卡片下标就是焦点下标，
    * 两边顺序不一致的话 ←→ 会跳着走。
    */
   function orderGames(list: Game[]): Game[] {
-    const dir = sortDir.value === "asc" ? 1 : -1;
-    const by = sortBy.value;
-
     // 自定义顺序：完全按玩家拖出来的位置，收藏不再置顶
     // （不然「把收藏挪下去」会一直被弹回顶部）。
-    if (by === "manual" && order.value.length) {
+    if (sortBy.value === "manual" && order.value.length) {
       const pos = new Map(order.value.map((key, i) => [key, i]));
       const at = (g: Game) => pos.get(g.key) ?? Number.MAX_SAFE_INTEGER;
       return [...list].sort((a, b) => {
@@ -340,37 +314,19 @@ export const useLibrary = defineStore("library", () => {
       });
     }
 
-    const value = (g: Game): string | number => {
-      switch (by) {
-        case "name":
-          return g.title.toLowerCase();
-        case "playtime":
-          return g.playtimeMinutes ?? 0;
-        case "size":
-          return g.sizeBytes ?? 0;
-        case "recent":
-        default:
-          return g.lastPlayed ? Date.parse(g.lastPlayed) : 0;
-      }
-    };
-
+    const played = (g: Game) => (g.lastPlayed ? Date.parse(g.lastPlayed) : 0);
     return [...list].sort((a, b) => {
       const fa = favorites.value.has(a.key) ? 0 : 1;
       const fb = favorites.value.has(b.key) ? 0 : 1;
-      if (fa !== fb) return fa - fb; // 收藏置顶，不受排序方向影响
+      if (fa !== fb) return fa - fb; // 收藏置顶
 
-      const va = value(a);
-      const vb = value(b);
-      if (typeof va === "string" || typeof vb === "string") {
-        return String(va).localeCompare(String(vb), "zh-Hans-CN") * dir;
-      }
-      if (va === vb) {
-        // 同分（比如都没玩过）时按名字兜底，保证顺序稳定
-        return a.title.localeCompare(b.title, "zh-Hans-CN");
-      }
-      return (va - vb) * dir;
+      const pa = played(a);
+      const pb = played(b);
+      if (pa === pb) return a.title.localeCompare(b.title, "zh-Hans-CN");
+      return pb - pa; // 最近玩过的在前
     });
   }
+
 
   /** reconcileFocus 让焦点跟着数据走：尽量停在 keepKey 上。 */
   function reconcileFocus(keepKey?: string) {
@@ -501,15 +457,12 @@ export const useLibrary = defineStore("library", () => {
     hiddenCount,
     hiddenGames,
     sortBy,
-    sortDir,
     order,
+    lastPlayedKey,
     setManualOrder,
     platformFilter,
     toggleHidden,
     unhideAll,
-    cycleSortBy,
-    toggleSortDir,
-    cyclePlatformFilter,
     setPlatformFilter,
     cycleIconPos,
     setNickname,

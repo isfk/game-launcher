@@ -5,7 +5,9 @@ import { Launcher, type State } from "../mygo";
 /** 手柄给界面的一次意图：要么移动焦点，要么按了个动作键。 */
 export type PadIntent =
   | { kind: "nav"; dir: "up" | "down" | "left" | "right" }
-  | { kind: "button"; button: string };
+  | { kind: "button"; button: string }
+  /** 松开：长按与短按要靠它区分（只发按下的话，长按永远判不出来） */
+  | { kind: "release"; button: string };
 
 const REPEAT_DELAY = 380; // 按住多久开始连发
 const REPEAT_INTERVAL = 130; // 连发间隔
@@ -62,10 +64,15 @@ export function usePad(onIntent: (intent: PadIntent) => void, onKind?: (kind: st
       }
 
       const before = prevButtons.get(pad.name) ?? new Set<string>();
-      for (const button of pad.buttons) {
+      const next = new Set(pad.buttons);
+      for (const button of next) {
         if (!before.has(button)) onIntent({ kind: "button", button });
       }
-      prevButtons.set(pad.name, new Set(pad.buttons));
+      // 松开的键也要报：界面靠「按下 → 松开」的间隔判长按
+      for (const button of before) {
+        if (!next.has(button)) onIntent({ kind: "release", button });
+      }
+      prevButtons.set(pad.name, next);
 
       if (pad.dir) dir = pad.dir; // 多只手柄时以最后一只的方向为准，够用
     }

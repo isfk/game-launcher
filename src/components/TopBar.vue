@@ -1,7 +1,6 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useClock } from "../composables/useClock";
-import ProviderIcon from "./ProviderIcon.vue";
 
 /**
  * TopBar 是右上角的状态区：本机库有哪些平台、各多少部，再加账号与时钟。
@@ -11,17 +10,13 @@ import ProviderIcon from "./ProviderIcon.vue";
  * 视线先抓到数字，再看到平台，最后才是容器本身（几乎看不见的磨砂底）。
  */
 const props = defineProps<{
-  /** [{ id: "steam", count: 2 }, ...]，空数组表示只有演示数据 */
-  breakdown: Array<{ id: string; count: number }>;
-  /** 当前生效的平台筛选，空串 = 全部 */
-  active?: string;
   /** 昵称（后端没自定义时是系统账户名） */
   name: string;
   /** 头像的 art:// 地址，空串表示用昵称首字兜底 */
   avatar?: string;
 }>();
 
-const emit = defineEmits<{ filter: [id: string]; profile: [] }>();
+const emit = defineEmits<{ profile: [] }>();
 
 const clock = useClock();
 
@@ -38,40 +33,10 @@ watch(
 );
 const avatarUrl = computed(() => (avatarBroken.value ? "" : (props.avatar ?? "")));
 
-const names: Record<string, string> = {
-  steam: "Steam",
-  epic: "Epic",
-  wegame: "WeGame",
-  manual: "手动",
-};
-
-function labelOf(id: string) {
-  return names[id] ?? id;
-}
 </script>
 
 <template>
   <header class="topbar">
-    <div class="sources" :class="{ flat: !breakdown.length }">
-      <template v-if="breakdown.length">
-        <button
-          v-for="item in breakdown"
-          :key="item.id"
-          class="src"
-          :class="{ on: props.active === item.id }"
-          :title="props.active === item.id ? '点击显示全部' : `只看 ${labelOf(item.id)}`"
-          @click="emit('filter', item.id)"
-        >
-          <ProviderIcon :provider="item.id" size="0.95rem" />
-          <span class="label">{{ labelOf(item.id) }}</span>
-          <span class="num">{{ item.count }}</span>
-        </button>
-      </template>
-      <span v-else class="src demo">
-        <i class="dot" />
-        <span class="label">演示数据</span>
-      </span>
-    </div>
 
     <button class="who" type="button" :title="`${props.name} · 点击改昵称和头像`" @click="emit('profile')">
       <img v-if="avatarUrl" class="avatar-img" :src="avatarUrl" alt="" @error="avatarBroken = true" />
@@ -94,96 +59,6 @@ function labelOf(id: string) {
   align-items: center;
   gap: 1.15rem;
   padding: 2.2vh 3vw;
-}
-
-/* ---- 平台与数量 ---- */
-.sources {
-  display: inline-flex;
-  align-items: center;
-  height: 1.95rem;
-  padding: 0 0.15rem;
-  border-radius: 999px;
-  background: rgba(10, 12, 18, 0.34);
-  border: 1px solid rgba(255, 255, 255, 0.06);
-  box-shadow:
-    0 8px 26px rgba(0, 0, 0, 0.3),
-    inset 0 1px 0 rgba(255, 255, 255, 0.04);
-  backdrop-filter: blur(16px) saturate(1.15);
-}
-
-/* 只有演示数据时不需要那圈底，留个极简标签就够 */
-.sources.flat {
-  background: transparent;
-  border-color: transparent;
-  box-shadow: none;
-  backdrop-filter: none;
-}
-
-.src {
-  position: relative;
-  display: inline-flex;
-  align-items: center;
-  gap: 0.4rem;
-  height: 100%;
-  padding: 0 0.75rem;
-  border: 0;
-  border-radius: 999px;
-  background: transparent;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-  transition:
-    background 0.2s var(--ease-out),
-    opacity 0.2s var(--ease-out);
-}
-
-.src:hover {
-  background: rgba(255, 255, 255, 0.06);
-}
-
-/* 选中的平台：亮起来 + 数量换成主色感的白 */
-.src.on {
-  background: rgba(255, 255, 255, 0.1);
-}
-
-.src.on .label {
-  color: rgba(255, 255, 255, 0.72);
-}
-
-/* 组间发丝线：只在中间画，两端不画 */
-.src:not(:last-child)::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  top: 50%;
-  width: 1px;
-  height: 0.9rem;
-  transform: translateY(-50%);
-  background: rgba(255, 255, 255, 0.09);
-}
-
-.label {
-  font-size: 0.6rem;
-  font-weight: 500;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.42);
-}
-
-.num {
-  font-size: 0.78rem;
-  font-weight: 600;
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
-  color: rgba(255, 255, 255, 0.9);
-}
-
-.dot {
-  width: 0.4rem;
-  height: 0.4rem;
-  border-radius: 50%;
-  background: #e0b154;
-  box-shadow: 0 0 10px rgba(224, 177, 84, 0.7);
 }
 
 /* ---- 账号 ----

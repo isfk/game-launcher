@@ -12,6 +12,7 @@ import TopBar from "./components/TopBar.vue";
 import { usePad, type PadIntent } from "./composables/usePad";
 import { accentOf, formatLastPlayed, formatPlaytime, formatSize, providerLabel } from "./lib/format";
 import { glyphsFor } from "./lib/glyphs";
+import { padKind, usingPad } from "./lib/input";
 import { sfx } from "./lib/sfx";
 import { isMyGo } from "mygo-runtime";
 import { events, Launcher } from "./mygo";
@@ -66,9 +67,7 @@ function centerFocused() {
 const detailOpen = ref(false);
 // 默认按手柄提示（Xbox 键位）：玩家动了键盘才切成按键提示，
 // 再动手柄又切回来。
-const usingPad = ref(true);
 // 真实手柄的键位体系，决定提示条画 A/B/X/Y 还是 ✕○□△ 还是任天堂的排布
-const padKind = ref<"xbox" | "playstation" | "switch">("xbox");
 // 玩家先用过键盘之后，就别再拿「接了手柄」覆盖他的输入方式
 let keyboardUsed = false;
 const settingsOpen = ref(false);
@@ -84,7 +83,12 @@ const uninstallAsk = ref(false);
 // 两个面板的竖向焦点：App 只负责把按键翻译成「上/下/确认」，
 // 具体焦点停在哪一项由面板自己管（见 composables/usePanelNav.ts）。
 const detailRef = ref<{ move: (d: number) => boolean; activate: () => boolean; reset: () => void } | null>(null);
-const settingsRef = ref<{ move: (d: number) => boolean; activate: () => boolean; reset: () => void } | null>(null);
+const settingsRef = ref<{
+  move: (d: number) => boolean;
+  page: (dir: number) => boolean;
+  activate: () => boolean;
+  reset: () => void;
+} | null>(null);
 const gridRef = ref<{
   move: (dx: number, dy: number) => boolean;
   activate: () => boolean;
@@ -92,6 +96,7 @@ const gridRef = ref<{
   openDetail: () => boolean;
   favorite: () => boolean;
   reset: (startKey?: string) => void;
+  stepPlatform: (dir: number) => boolean;
   startMove: () => boolean;
   finishMove: () => boolean;
   cancelMove: () => boolean;
@@ -99,6 +104,17 @@ const gridRef = ref<{
 } | null>(null);
 /** 网格里是不是正在「调整顺序」（提示条和按键分发都要跟着变） */
 const gridMoving = ref(false);
+
+/** 手柄长按判定阈值：短按 Y = 详情，按住不放才是「调整顺序」 */
+const PAD_LONG_PRESS = 500;
+let northTimer: number | undefined;
+
+function cancelNorthTimer() {
+  if (northTimer !== undefined) {
+    window.clearTimeout(northTimer);
+    northTimer = undefined;
+  }
+}
 const uninstalling = ref(false);
 let uninstallTimer: number | undefined;
 const launching = ref<{ title: string; status: "starting" | "failed"; message?: string } | null>(null);
@@ -296,6 +312,7 @@ function openGrid() {
 
 function closeGrid() {
   if (!gridOpen.value) return;
+  cancelNorthTimer();
   // 搬动中直接关掉等于默默丢弃这次调整：先按取消处理
   if (gridRef.value?.isMoving()) gridRef.value.cancelMove();
   sfx.back();
@@ -357,12 +374,6 @@ async function startGridMove() {
     await nextTick();
   }
   if (gridRef.value?.startMove()) sfx.confirm();
-}
-
-/** 设置面板里的「调整游戏顺序」：先收起面板，再进网格开始搬。 */
-async function orderFromSettings() {
-  settingsOpen.value = false;
-  await startGridMove();
 }
 
 function openSearch() {
@@ -481,6 +492,8 @@ function onPadIntent(intent: PadIntent) {
     }
     if (intent.kind === "button") {
       if (intent.button === "south") settingsRef.value?.activate();
+      else if (intent.button === "lb") settingsRef.value?.page(-1);
+      else if (intent.button === "rb") settingsRef.value?.page(1);
       else if (intent.button === "east" || intent.button === "start") settingsOpen.value = false;
     }
     return;
@@ -501,7 +514,7 @@ function onPadIntent(intent: PadIntent) {
       return;
     }
     if (intent.kind === "button") {
-      // 调整顺序时只剩三件事：A 放下、B 取消、方向键挪位置
+      // 调整顺序时只剩三件事：A 放下、B 退出、方向键挪位置
       if (gridMoving.value) {
         if (intent.button === "south") {
           if (gridRef.value?.finishMove()) sfx.confirm();
@@ -511,10 +524,26 @@ function onPadIntent(intent: PadIntent) {
         return;
       }
       if (intent.button === "south") gridRef.value?.launch();
-      else if (intent.button === "north") gridRef.value?.openDetail();
-      else if (intent.button === "west") gridRef.value?.favorite();
+      else if (intent.button === "lb") {
+        if (gridRef.value?.stepPlatform(-1)) sfx.move();
+      } else if (intent.button === "rb") {
+        if (gridRef.value?.stepPlatform(1)) sfx.move();
+      } else if (intent.button === "north") {
+        // Y 起手不立刻开详情：短按要能开详情、长按要能进搬动模式，
+        // 只能等「松开」或者「按住够久」来定夺
+        cancelNorthTimer();
+        northTimer = window.setTimeout(() => {
+          northTimer = undefined;
+          void startGridMove();
+        }, PAD_LONG_PRESS);
+      } else if (intent.button === "west") gridRef.value?.favorite();
       else if (intent.button === "start") openSettings();
       else if (intent.button === "east") closeGrid();
+    }
+    if (intent.kind === "release" && intent.button === "north" && !gridMoving.value) {
+      const wasPending = northTimer !== undefined;
+      cancelNorthTimer();
+      if (wasPending) gridRef.value?.openDetail(); // 短按 Y：详情
     }
     return;
   }
@@ -555,6 +584,15 @@ function onPadIntent(intent: PadIntent) {
     case "north":
       openDetail();
       break;
+    case "back":
+      openGrid();
+      break;
+    case "lb":
+      move(-1);
+      break;
+    case "rb":
+      move(1);
+      break;
     case "start":
       if (detailOpen.value) detailOpen.value = false;
       else openSettings();
@@ -563,6 +601,9 @@ function onPadIntent(intent: PadIntent) {
     // 「按一下就掉出全屏」的坑。这里不用它：全屏只留在设置里（键盘另有 F）。
   }
 }
+
+// e2e / 调试用：真手柄没法在自动化里造，直接把一条意图灌进分发器
+(window as unknown as { __padIntent?: (i: PadIntent) => void }).__padIntent = onPadIntent;
 
 usePad(onPadIntent, (kind) => {
   if (kind === "playstation" || kind === "switch" || kind === "xbox") padKind.value = kind;
@@ -605,6 +646,14 @@ function onKeydown(e: KeyboardEvent) {
       case "ArrowRight":
         e.preventDefault();
         settingsRef.value?.move(1);
+        break;
+      case "PageUp":
+        e.preventDefault();
+        settingsRef.value?.page(-1);
+        break;
+      case "PageDown":
+        e.preventDefault();
+        settingsRef.value?.page(1);
         break;
       case "Enter":
       case " ":
@@ -885,6 +934,14 @@ watch(
 const unsubscribers: Array<() => void> = [];
 
 onMounted(() => {
+  // 临时调试钩子：自动化里直接看几个开关的真实状态
+  (window as unknown as Record<string, unknown>).__state = () => ({
+    searchOpen: searchOpen.value,
+    gridOpen: gridOpen.value,
+    settingsOpen: settingsOpen.value,
+    detailOpen: detailOpen.value,
+    usingPad: usingPad.value,
+  });
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("mousemove", onMousemove);
   window.addEventListener("resize", centerFocused);
@@ -933,14 +990,7 @@ onUnmounted(() => {
     <Backdrop :game="lib.selected" />
 
     <div v-show="!gridOpen" class="home" :class="{ expanded: detailOpen || settingsOpen }">
-    <TopBar
-      :breakdown="lib.providerCounts"
-      :active="lib.platformFilter"
-      :name="lib.profileName"
-      :avatar="lib.profileAvatar"
-      @filter="lib.setPlatformFilter"
-      @profile="openSettings"
-    />
+    <TopBar :name="lib.profileName" :avatar="lib.profileAvatar" @profile="openSettings" />
 
     <section class="meta" :style="{ '--accent': accentOf(lib.selected) }">
       <p v-if="lib.loading" class="status">正在扫描游戏库…</p>
@@ -972,6 +1022,7 @@ onUnmounted(() => {
             :focused="i === lib.index"
             :favorite="lib.favorites.has(game.key)"
             :icon-pos="lib.iconPos"
+            :recent="game.key === lib.lastPlayedKey"
             @pick="lib.focusKey(game.key)"
             @activate="activate"
           />
@@ -1010,21 +1061,23 @@ onUnmounted(() => {
 
     </div>
 
-    <LibraryGrid
-      v-if="gridOpen"
-      ref="gridRef"
-      :games="lib.games"
-      :start-key="lib.selected?.key"
-      :icon-pos="lib.iconPos"
-      :favorites="lib.favorites"
-      @close="closeGrid"
-      @focus="lib.focusKey"
-      @select="pickFromGrid"
-      @launch="launchFromGrid"
-      @detail="detailFromGrid"
-      @favorite="favoriteFromGrid"
-      @moving="gridMoving = $event"
-    />
+    <Transition name="page">
+      <LibraryGrid
+        v-if="gridOpen"
+        ref="gridRef"
+        :games="lib.games"
+        :start-key="lib.selected?.key"
+        :icon-pos="lib.iconPos"
+        :favorites="lib.favorites"
+        @close="closeGrid"
+        @focus="lib.focusKey"
+        @select="pickFromGrid"
+        @launch="launchFromGrid"
+        @detail="detailFromGrid"
+        @favorite="favoriteFromGrid"
+        @moving="gridMoving = $event"
+      />
+    </Transition>
 
     <!-- 下面这三层提到 .app 根上：首页和网格都要用。
          以前它们挂在 .home 里（`v-show="!gridOpen"`），网格一开就整个被藏起来，
@@ -1042,7 +1095,6 @@ onUnmounted(() => {
       @close="settingsOpen = false"
       @rescan="rescan"
       @toggle-fullscreen="toggleFullScreen"
-      @order="orderFromSettings"
       @added="showToast('已添加 1 部游戏（手动添加的排在库里最前面）')"
       @failed="showToast"
     />
@@ -1065,7 +1117,17 @@ onUnmounted(() => {
       :pad="usingPad"
       :kind="padKind"
       :context="
-        gridMoving ? 'move' : settingsOpen ? 'settings' : gridOpen ? 'grid' : detailOpen ? 'detail' : 'home'
+        searchOpen
+          ? 'search'
+          : gridMoving
+            ? 'move'
+            : settingsOpen
+              ? 'settings'
+              : gridOpen
+                ? 'grid'
+                : detailOpen
+                  ? 'detail'
+                  : 'home'
       "
     />
 
@@ -1079,6 +1141,32 @@ onUnmounted(() => {
   position: relative;
   height: 100%;
   isolation: isolate;
+}
+
+/*
+ * 进出「全部游戏」：整页淡入淡出 + 一点点位移/缩放。
+ *
+ * 用 <Transition> 而不是组件里的 CSS animation：离场也要有动画，
+ * 而 v-if 一卸载元素就没了，animation 根本没机会播。
+ */
+.page-enter-active,
+.page-leave-active {
+  transition:
+    opacity 0.22s var(--ease-out),
+    transform 0.26s var(--ease-out);
+}
+
+.page-enter-from,
+.page-leave-to {
+  opacity: 0;
+  transform: translateY(1.6vh) scale(0.985);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .page-enter-active,
+  .page-leave-active {
+    transition: none;
+  }
 }
 
 .app > :deep(.backdrop) {

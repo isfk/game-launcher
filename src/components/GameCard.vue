@@ -10,6 +10,8 @@ const props = defineProps<{
   favorite: boolean;
   /** 平台图标位置：bl（默认，和名称同一行）/ tl / tr / br */
   iconPos?: string;
+  /** 最近玩过的那一部：角上挂个「上次游玩」 */
+  recent?: boolean;
 }>();
 
 const emit = defineEmits<{ pick: []; activate: [] }>();
@@ -51,9 +53,15 @@ const posClass = computed(() => `icon-${pos.value}`);
 const iconEl = ref<unknown>(null);
 const nameEl = ref<HTMLElement | null>(null);
 const starEl = ref<unknown>(null);
+const recentEl = ref<HTMLElement | null>(null);
 
 type Box = DOMRect | null;
-const prev: { icon: Box; name: Box; star: Box } = { icon: null, name: null, star: null };
+const prev: { icon: Box; name: Box; star: Box; recent: Box } = {
+  icon: null,
+  name: null,
+  star: null,
+  recent: null,
+};
 
 /** node 把「组件实例 / DOM 节点 / 空」统一成 DOM 节点。 */
 function node(target: unknown): HTMLElement | null {
@@ -91,6 +99,7 @@ function measure() {
   prev.icon = node(iconEl.value)?.getBoundingClientRect() ?? null;
   prev.name = nameEl.value?.getBoundingClientRect() ?? null;
   prev.star = node(starEl.value)?.getBoundingClientRect() ?? null;
+  prev.recent = node(recentEl.value)?.getBoundingClientRect() ?? null;
 }
 
 onBeforeUpdate(measure);
@@ -99,6 +108,9 @@ onUpdated(() => {
   flip(iconEl.value, prev.icon);
   flip(nameEl.value, prev.name);
   flip(starEl.value, prev.star);
+  // 「上次游玩」也会跟着换位置（图标挪到行尾、贴到右上角……），所以也得 FLIP，
+  // 不然别的元素都在滑，只有它一个瞬移。
+  flip(recentEl.value, prev.recent);
   measure(); // 记下新位置，下次切换时当「旧位置」用
 });
 </script>
@@ -138,6 +150,11 @@ onUpdated(() => {
            （悬停有全名，详情面板的 eyebrow 也还写着平台） -->
       <ProviderIcon v-if="pos === 'bl'" ref="iconEl" class="label-icon" :provider="game.provider" :title="badge" />
       <span ref="nameEl" class="name">{{ game.title }}</span>
+      <!-- 「上次游玩」就住在名称这一行的行尾：它是在解释「这张卡为什么排第一」，
+           跟名字看同一行才读得懂；放左上角会跟平台图标抢位置。
+           动画用 keyframes 而不是 Transition：这张卡每回进网格/首页都是新挂载的，
+           Transition 得靠 appear 才有得演，keyframes 只要元素出现就一定跑。 -->
+      <span ref="recentEl" v-if="recent && !game.running" class="recent">上次游玩</span>
       <ProviderIcon v-if="pos === 'br'" ref="iconEl" class="label-icon end" :provider="game.provider" :title="badge" />
     </div>
 
@@ -403,5 +420,58 @@ onUpdated(() => {
 .icon-tl .running {
   top: 2.1rem;
   left: 0.55rem;
+}
+
+/*
+ * 「上次游玩」：跟着名称行走，用中性色、比名字小一号 ——
+ * 它不是状态（正在玩），只是一句解释，不该比游戏名还抢眼。
+ *
+ * 动画跟收藏星标的 FLIP 同一套参数（420ms、cubic-bezier(.22,1,.36,1)），
+ * 这样「标签滑进来」和「星标滑过去」是同一种手感，不是两套风格。
+ */
+.recent {
+  flex: 0 0 auto;
+  /* 对齐到标题第一行，和行内平台图标的基线一致 */
+  margin-top: 0.16em;
+  padding: 0.12em 0.42em;
+  border-radius: 999px;
+  /* 宽度参与动画：它在名字旁边的 flex 行里，白占着会把名字挤一下 */
+  max-width: 6em;
+  overflow: hidden;
+  font-size: 0.58rem;
+  line-height: 1.4;
+  letter-spacing: 0.02em;
+  white-space: nowrap;
+  color: rgba(255, 255, 255, 0.78);
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  animation: recent-in 0.42s cubic-bezier(0.22, 1, 0.36, 1) both;
+}
+
+/*
+ * 从右边滑进来：宽度从 0 撑开（把名字推开，而不是瞬间挤一下）、
+ * 同时淡入并带一下轻微放大，尺寸小的时候才看得出来在动。
+ * 开始晚 60ms，让卡片自己的进场动画先起头。
+ */
+@keyframes recent-in {
+  0% {
+    opacity: 0;
+    transform: translateX(0.6em) scale(0.86);
+    max-width: 0;
+    padding-left: 0;
+    padding-right: 0;
+    border-width: 0;
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+    max-width: 6em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .recent {
+    animation: none;
+  }
 }
 </style>

@@ -14,7 +14,7 @@ import { glyphsFor } from "../lib/glyphs";
 const props = defineProps<{
   pad: boolean;
   kind?: "xbox" | "playstation" | "switch";
-  context?: "home" | "detail" | "settings" | "grid" | "move";
+  context?: "home" | "detail" | "settings" | "grid" | "move" | "search";
 }>();
 
 const glyphs = computed(() => glyphsFor(props.kind));
@@ -33,18 +33,21 @@ const hints = computed<Hint[]>(() => {
 
   // 手柄：键位跟着设备类型走（glyphsFor 决定符号）
   if (props.pad) {
+    if (context.value === "search") {
+      return [{ cap: g.back.text, tone: g.back.tone, label: "关闭搜索" }];
+    }
     if (context.value === "move") {
       return [
         { cap: "↑↓←→", label: "挪动" },
         { cap: g.confirm.text, tone: g.confirm.tone, label: "放下" },
-        { cap: g.back.text, tone: g.back.tone, label: "取消" },
+        { cap: g.back.text, tone: g.back.tone, label: "退出" },
       ];
     }
     if (context.value === "grid") {
       return [
         { cap: "↑↓←→", label: "移动" },
-        { cap: g.confirm.text, tone: g.confirm.tone, label: "启动" },
-        { cap: g.detail.text, tone: g.detail.tone, label: "详情" },
+        { cap: `${g.prev}/${g.next}`, label: "平台" },
+        { cap: `长按 ${g.detail.text}`, tone: g.detail.tone, label: "调整顺序" },
         { cap: g.favorite.text, tone: g.favorite.tone, label: "收藏" },
         { cap: g.menu, tone: "pill", label: "设置" },
         { cap: g.back.text, tone: g.back.tone, label: "关闭" },
@@ -61,24 +64,33 @@ const hints = computed<Hint[]>(() => {
     if (context.value === "settings") {
       return [
         { cap: "↑↓", label: "选择" },
+        { cap: `${g.prev}/${g.next}`, label: "翻页" },
         { cap: g.confirm.text, tone: g.confirm.tone, label: "确认" },
         { cap: g.back.text, tone: g.back.tone, label: "返回" },
       ];
     }
     return [
+      { cap: `${g.prev}/${g.next}`, label: "切换游戏" },
       { cap: g.confirm.text, tone: g.confirm.tone, label: "启动" },
       { cap: g.detail.text, tone: g.detail.tone, label: "详情" },
       { cap: g.favorite.text, tone: g.favorite.tone, label: "收藏" },
       { cap: g.menu, tone: "pill", label: "设置" },
+      { cap: g.view, tone: "pill", label: "全部游戏" },
     ];
   }
 
   // 键盘
+  if (context.value === "search") {
+    return [
+      { cap: "Enter", label: "收起" },
+      { cap: "Esc", label: "关闭搜索" },
+    ];
+  }
   if (context.value === "move") {
     return [
       { cap: "↑↓←→", label: "挪动" },
       { cap: "Enter", label: "放下" },
-      { cap: "Esc", label: "取消" },
+      { cap: "Esc", label: "退出" },
     ];
   }
 
@@ -109,6 +121,7 @@ const hints = computed<Hint[]>(() => {
   if (context.value === "settings") {
     return [
       { cap: "↑↓", label: "选择" },
+      { cap: "PgUp/PgDn", label: "翻页" },
       { cap: "Enter", label: "确认" },
       { cap: "Esc", label: "返回" },
     ];
@@ -248,6 +261,16 @@ kbd {
   align-items: center;
   justify-content: center;
   gap: 1.4rem;
+  /*
+   * 整排提示包一根胶囊：底部压在封面上，一行白字没有底色时
+   * 遇到亮图会糊成一片。底色要够淡，否则像一条压在画面上的横条。
+   */
+  padding: 0.46rem 1.15rem;
+  border-radius: 999px;
+  background: rgba(9, 11, 16, 0.46);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  box-shadow: 0 6px 24px rgba(0, 0, 0, 0.28);
+  backdrop-filter: blur(14px) saturate(120%);
 }
 
 /* 默认（键盘）只看按键提示，摸到手柄就切回键位图 */

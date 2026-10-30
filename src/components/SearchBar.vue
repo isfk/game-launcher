@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { glyphsFor } from "../lib/glyphs";
+import { padKind, usingPad } from "../lib/input";
 
 /**
  * SearchBar 是首页顶部的搜索框。
@@ -50,6 +52,8 @@ function onKeydown(e: KeyboardEvent) {
 }
 
 defineExpose({ focus: () => inputEl.value?.focus() });
+/** 关闭按钮：手柄写返回键，键鼠写 ✕ */
+const closeCap = computed(() => (usingPad.value ? glyphsFor(padKind.value).back.text : "✕"));
 </script>
 
 <template>
@@ -66,7 +70,9 @@ defineExpose({ focus: () => inputEl.value?.focus() });
       @keydown="onKeydown"
     />
     <span v-if="hint" class="hint">{{ hint }}</span>
-    <button class="close" aria-label="关闭搜索" @click="emit('close')">✕</button>
+    <button class="close" aria-label="关闭搜索" :title="`关闭（${closeCap}）`" @click="emit('close')">
+      {{ closeCap }}
+    </button>
   </div>
 </template>
 

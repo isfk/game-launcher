@@ -3,6 +3,8 @@ import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { Launcher } from "../mygo";
 import { providerLabel } from "../lib/format";
 import { sfx } from "../lib/sfx";
+import { glyphsFor } from "../lib/glyphs";
+import { padKind, usingPad } from "../lib/input";
 import PanelShell from "./PanelShell.vue";
 import { usePanelNav } from "../composables/usePanelNav";
 import { useLibrary } from "../stores/library";
@@ -19,8 +21,6 @@ const emit = defineEmits<{
   close: [];
   rescan: [];
   toggleFullscreen: [];
-  /** 进网格「调整顺序」（手柄玩家的入口） */
-  order: [];
   /** 手动添加成功（外层弹提示） */
   added: [];
   /** 添加失败（外层弹错误） */
@@ -72,32 +72,12 @@ const nav = usePanelNav(() => [
   { key: "add", activate: () => void addGame() },
   { key: "rescan", activate: () => emit("rescan") },
   { key: "iconpos", activate: () => void cycleIcon() },
-  { key: "sortby", activate: () => void lib.cycleSortBy() },
-  { key: "sortdir", activate: () => void lib.toggleSortDir() },
-  { key: "order", activate: () => emit("order") },
-  { key: "filter", activate: () => lib.cyclePlatformFilter() },
   { key: "unhide", activate: () => void lib.unhideAll() },
   // 每个被隐藏的游戏单独一条：可以只恢复其中一部
   ...lib.hiddenGames.map((g) => ({ key: `unhide:${g.key}`, activate: () => void lib.toggleHidden(g.key, false) })),
   { key: "sound", activate: () => toggleSound() },
   { key: "quit", activate: () => void Launcher.quit() },
 ]);
-
-/** 文案映射：设置里显示的是人话，不是内部字段值。 */
-const SORT_LABEL: Record<string, string> = {
-  recent: "最近游玩",
-  name: "名称",
-  playtime: "游玩时长",
-  size: "体积",
-  manual: "自定义",
-};
-const FILTER_LABEL: Record<string, string> = {
-  "": "全部",
-  steam: "Steam",
-  epic: "Epic",
-  wegame: "WeGame",
-  manual: "手动添加",
-};
 
 /** 位置的显示文案：就是四个词，和卡片上的四个角一一对应。 */
 const ICON_POS_LABEL: Record<string, string> = {
@@ -114,7 +94,27 @@ function cycleIcon() {
   void lib.cycleIconPos();
 }
 
-defineExpose({ move: nav.move, activate: nav.activate, reset: nav.reset, isFocused: nav.isFocused });
+/**
+ * page 肩键翻页：LB / RB 一次走 5 行。
+ *
+ * 设置项是竖着一长条，肩键在主机上是「换一屏内容」的位置；
+ * 这里没有分页签，就按屏来 —— 比一格一格按十几次像样。
+ * 鼠标不受影响：行照样可点、可悬停聚焦。
+ */
+/** 关闭按钮：手柄写返回键（B / ○ / A），键鼠写 ✕ */
+const closeCap = computed(() => (usingPad.value ? glyphsFor(padKind.value).back.text : "✕"));
+
+function page(dir: number) {
+  return nav.move(dir * 5);
+}
+
+defineExpose({
+  move: nav.move,
+  page,
+  activate: nav.activate,
+  reset: nav.reset,
+  isFocused: nav.isFocused,
+});
 
 /**
  * focusTo 按 key 找下标再移动鼠标焦点。
@@ -226,7 +226,9 @@ function toggleSound() {
         <h2>设置</h2>
         <p class="sub">Esc / ○ 返回</p>
       </div>
-      <button class="x" aria-label="关闭" @click="$emit('close')">✕</button>
+      <button class="x" aria-label="关闭" :title="`关闭（${closeCap}）`" @click="$emit('close')">
+        {{ closeCap }}
+      </button>
     </header>
 
     <div class="body">
@@ -350,66 +352,6 @@ function toggleSound() {
             @click="cycleIcon"
           >
             {{ iconPosLabel }}
-          </button>
-        </li>
-
-        <li>
-          <div>
-            <span class="label">排序方式</span>
-            <span class="desc">收藏永远置顶，这里只决定同类之内的顺序</span>
-          </div>
-          <button
-            class="btn"
-            :class="{ focused: nav.isFocused('sortby') }"
-            @mouseenter="focusTo('sortby')"
-            @click="lib.cycleSortBy()"
-          >
-            {{ SORT_LABEL[lib.sortBy] ?? "最近游玩" }}
-          </button>
-        </li>
-
-        <li>
-          <div>
-            <span class="label">排序方向</span>
-            <span class="desc">{{ lib.sortDir === "asc" ? "从小到大 / A→Z" : "从大到小 / Z→A" }}</span>
-          </div>
-          <button
-            class="btn"
-            :class="{ focused: nav.isFocused('sortdir') }"
-            @mouseenter="focusTo('sortdir')"
-            @click="lib.toggleSortDir()"
-          >
-            {{ lib.sortDir === "asc" ? "升序" : "降序" }}
-          </button>
-        </li>
-
-        <li>
-          <div>
-            <span class="label">调整游戏顺序</span>
-            <span class="desc">进「全部游戏」，用方向键把卡片挪到想要的位置</span>
-          </div>
-          <button
-            class="btn"
-            :class="{ focused: nav.isFocused('order') }"
-            @mouseenter="focusTo('order')"
-            @click="$emit('order')"
-          >
-            调整
-          </button>
-        </li>
-
-        <li>
-          <div>
-            <span class="label">平台筛选</span>
-            <span class="desc">只看某个平台，也可以点顶栏那几组数字</span>
-          </div>
-          <button
-            class="btn"
-            :class="{ focused: nav.isFocused('filter') }"
-            @mouseenter="focusTo('filter')"
-            @click="lib.cyclePlatformFilter()"
-          >
-            {{ FILTER_LABEL[lib.platformFilter] ?? "全部" }}
           </button>
         </li>
 

@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import GameCard from "./GameCard.vue";
+import ProviderStats from "./ProviderStats.vue";
 import { useLibrary } from "../stores/library";
 import { sfx } from "../lib/sfx";
+import { glyphsFor } from "../lib/glyphs";
+import { padKind, usingPad } from "../lib/input";
 import type { Game } from "../mygo";
 
 /**
@@ -89,17 +92,35 @@ watch(() => props.games.length, () => nextTick(measureCards));
 
 const cursor = ref(0);
 
-// ---- 调整顺序（移动某一张卡）----
+/**
+ * 焦点落在哪一区：「卡片」还是「平台 tab」。
+ *
+ * 主机 UI 的老规矩：一屏里只有一处焦点。第一行卡片按 ↑ 上到平台那行，
+ * 点平台胶囊是鼠标的事，焦点该回卡片区，别两处一起亮。
+ */
+const zone = ref<"cards" | "tabs">("cards");
+
+/**
+ * 关闭按钮上的字：手柄画 B / ○ / A，键鼠画 ✕。
+ *
+ * 关掉这页的方式本来就跟「返回」同一个键，按钮上直接写那个键，
+ * 比写一个 ✕ 更省事 —— 手柄玩家不用猜哪个键是 ✕。
+ */
+const closeCap = computed(() => (usingPad.value ? glyphsFor(padKind.value).back.text : "✕"));
+/** 平台 tab 里的光标 */
+const tabIndex = ref(0);
+
+// ---- 调整顺序（拿起 / 挪动 / 放下）----
 //
-// 为什么是「拿起—攞位—放下」而不是拖拽：这套界面是手柄优先的，手柄没有指针，
-// 但方向键人人都有。鼠标玩家也能点标题栏的「调整顺序」进来，用同一套逻辑。
+// 手柄和键盘走这条状态机；鼠标拖拽共用同一个 preview，
+// 落地都走 lib.setManualOrder，不额外记一套状态。
 const moving = ref(false);
-/** 移动模式下的临时顺序（确定才写回 setting，取消就丢掉） */
+/** 移动模式下的临时顺序（确定才写回设置，取消就丢掉） */
 const preview = ref<Game[]>([]);
 /** 正在搬的那张卡的 key */
 const moveKey = ref("");
 
-/** 界面要显示的那份顺序：移动中看本地的预览，平时看 store 的 */
+/** 界面要显示的那份顺序：移动中看本地预览，平时看 store 的 */
 const shown = computed(() => (moving.value ? preview.value : props.games));
 
 /** 按 key 记下每张卡当前的位置（FLIP 的「旧位置」）。 */
@@ -116,7 +137,7 @@ function snapshot(skip?: string): Map<string, DOMRect> {
 }
 
 /**
- * cancelFades 掐掉卡片上还在跑的 FLIP 动画。
+ * cancelCellAnims 掐掉卡片上还在跑的 FLIP 动画。
  *
  * 必须在「量完旧位置」之后、改数据之前做：拖动时每隔几十毫秒就重排一次，
  * 上一次动画常常还没跑完。先量到它此刻的视觉位置（旧位置），再掐掉动画，
@@ -180,14 +201,16 @@ function moveCard(dx: number, dy: number): boolean {
   const to = from + dx + dy * COLS;
   if (from < 0 || to < 0 || to >= list.length || to === from) return false;
 
-  const before = snapshot();
+  const before = snapshot(moveKey.value);
+  cancelCellAnims(moveKey.value);
+
   const next = [...list];
   const [card] = next.splice(from, 1);
   if (!card) return false;
   next.splice(to, 0, card);
   preview.value = next;
   cursor.value = to; // 焦点跟着卡片走；watch 会把它滚进视口
-  void animateFrom(before);
+  void animateFrom(before, moveKey.value, 300);
   return true;
 }
 
@@ -543,13 +566,42 @@ watch(
 /** reset 打开时调用：把光标放到首页当前那部上，并居中显示。 */
 function reset(startKey?: string) {
   const i = startKey ? props.games.findIndex((g) => g.key === startKey) : -1;
+  zone.value = "cards";
   cursor.value = i >= 0 ? i : 0;
   scrollTo(cursor.value, true);
 }
 
-/** move 处理二维移动：平时走光标，移动模式下搬卡片。 */
+/**
+ * move 处理二维移动。
+ *
+ * 三种情形：搬卡片、在平台 tab 行里走、在卡片网格里走。
+ * 从第一行往上就进 tab 行 —— 「往上 = 更外层」这套方向感，主机上都这么写。
+ */
 function move(dx: number, dy: number): boolean {
   if (moving.value) return moveCard(dx, dy);
+
+  const tabs = lib.providerCounts.length;
+
+  if (zone.value === "tabs") {
+    if (dy > 0) {
+      // 往下回卡片
+      zone.value = "cards";
+      return true;
+    }
+    if (dx && tabs) {
+      tabIndex.value = Math.min(tabs - 1, Math.max(0, tabIndex.value + dx));
+      return true;
+    }
+    return false;
+  }
+
+  // 卡片区：最上面一行再往上，就上到平台那一行（焦点落在当前筛选对应的那颗）
+  if (dy < 0 && tabs && cursor.value < COLS) {
+    const at = lib.providerCounts.findIndex((it) => it.id === lib.platformFilter);
+    tabIndex.value = at >= 0 ? at : 0;
+    zone.value = "tabs";
+    return true;
+  }
 
   const total = props.games.length;
   if (!total) return false;
@@ -569,12 +621,39 @@ function pick(i: number) {
   }
   const game = shown.value[i];
   if (moving.value && game) moveKey.value = game.key;
+  zone.value = "cards";
   cursor.value = i;
 }
 
-/** activate 选中当前这部并把焦点带回首页（移动模式下 = 完成）。 */
+/**
+ * stepPlatform 肩键换平台：LB / RB 在「全部 → 各平台」之间轮转。
+ *
+ * 和 tab 行是同一份状态：肩键直接改筛选，方向键上移是精确挑那颗。
+ * 主机上两种习惯都有，一起给，谁也不碍谁。
+ */
+function stepPlatform(dir: number): boolean {
+  const ids = ["", ...lib.providerCounts.map((it) => it.id)];
+  if (ids.length < 2) return false;
+  const at = Math.max(0, ids.indexOf(lib.platformFilter));
+  const next = ids[(at + dir + ids.length) % ids.length] ?? "";
+  lib.setPlatformFilter(next === lib.platformFilter ? "" : next);
+  zone.value = "cards";
+  cursor.value = 0;
+  return true;
+}
+
+/** activate 选中当前这部并把焦点带回首页（移动模式下 = 完成，tab 行 = 切平台）。 */
 function activate(): boolean {
   if (moving.value) return finishMove();
+
+  if (zone.value === "tabs") {
+    const item = lib.providerCounts[tabIndex.value];
+    if (!item) return false;
+    lib.setPlatformFilter(item.id); // 再按一次同一颗 = 取消筛选
+    cursor.value = 0;
+    return true;
+  }
+
   const game = props.games[cursor.value];
   if (!game) return false;
   emit("select", game.key);
@@ -615,6 +694,7 @@ defineExpose({
   openDetail,
   favorite,
   reset,
+  stepPlatform,
   startMove,
   finishMove,
   cancelMove,
@@ -626,41 +706,25 @@ defineExpose({
 <template>
   <div class="library" @click.self="emit('close')">
     <header class="head">
-      <div>
-        <h2>全部游戏</h2>
-        <p class="sub">
-          {{ shown.length }} 部 · 每行 {{ COLS }} 部
-          <template v-if="moving">
-            <span class="sep">·</span>
-            <span class="moving-tip">搬动中，方向键换位置</span>
-            <button class="action primary" @click="finishMove()">完成</button>
-            <button class="action" @click="cancelMove()">取消</button>
-          </template>
-          <template v-else>
-            <span class="sep">·</span>
-            <span class="drag-tip">拖动卡片即可调整顺序</span>
-            <button class="action" @click="startMove()">用方向键调</button>
-          </template>
-        </p>
-      </div>
-      <div class="legend">
-        <template v-if="moving">
-          <span>↑↓←→ 挪动</span>
-          <span>Enter 放下</span>
-          <span>Esc 取消</span>
-        </template>
-        <template v-else>
-          <span>拖动卡片 调整顺序</span>
-          <span>↑↓←→ 移动</span>
-          <span>Enter 启动</span>
-          <span>Y 详情</span>
-          <span>X 收藏</span>
-          <span>M 调整顺序</span>
-          <span>/ 搜索</span>
-          <span>S 设置</span>
-          <span>Esc 关闭</span>
-        </template>
-        <button class="x" aria-label="关闭" @click="emit('close')">✕</button>
+      <h2>
+        全部游戏
+        <span class="count">{{ shown.length }}</span>
+      </h2>
+      <div class="head-right">
+        <ProviderStats
+          :items="lib.providerCounts"
+          :active="lib.platformFilter"
+          :focused="zone === 'tabs' ? tabIndex : -1"
+          @pick="lib.setPlatformFilter"
+        />
+        <button
+          class="x"
+          aria-label="关闭"
+          :title="`关闭（${closeCap}）`"
+          @click="emit('close')"
+        >
+          {{ closeCap }}
+        </button>
       </div>
     </header>
 
@@ -680,8 +744,9 @@ defineExpose({
       >
         <GameCard
           :game="game"
-          :focused="i === cursor"
+          :focused="zone === 'cards' && i === cursor"
           :favorite="isFavorite(game.key)"
+          :recent="game.key === lib.lastPlayedKey"
           :icon-pos="pos"
           :class="{ lifting: moving && game.key === moveKey }"
           @pick="pick(i)"
@@ -706,99 +771,70 @@ defineExpose({
   display: flex;
   flex-direction: column;
   padding: 4.5vh 4vw 3vh;
-  animation: fade 0.24s var(--ease-out);
 }
 
 .head {
   position: relative;
   z-index: 1;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
   justify-content: space-between;
+  gap: 1rem;
   margin-bottom: 2.2vh;
 }
 
+/* 平台胶囊和关闭按钮同一行，都和标题的视觉中心对齐 */
+.head-right {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+}
+
 h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 0.55rem;
   margin: 0;
   font-size: 1.6rem;
   letter-spacing: -0.01em;
 }
 
-.sub {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.45rem;
-  margin: 0.35rem 0 0;
-  font-size: 0.78rem;
-  color: var(--faint);
+/* 总数跟在大字右边：不另起一行，也不再占一条副标题 */
+.count {
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.45);
   font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
 }
 
-.sep {
-  opacity: 0.5;
-}
-
-/* 标题栏里的小动作：调整顺序 / 完成 / 取消 */
-.action {
-  padding: 0.2em 0.7em;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
-  font-size: 0.74rem;
-  color: var(--muted);
-  background: rgba(255, 255, 255, 0.06);
-  transition:
-    color 0.2s var(--ease-out),
-    background 0.2s var(--ease-out);
-}
-
-.action:hover {
-  color: #fff;
-  background: rgba(255, 255, 255, 0.14);
-}
-
-.action.primary {
-  color: #10131a;
-  background: #e9ecf2;
-  border-color: transparent;
-}
-
-.action.primary:hover {
-  background: #fff;
-}
-
-.drag-tip {
-  color: rgba(255, 255, 255, 0.5);
-}
-
-.moving-tip {
-  color: rgba(255, 255, 255, 0.72);
-}
-
-.legend {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 0.4rem 1rem;
-  font-size: 0.72rem;
-  color: var(--faint);
-}
-
+/* 关闭：贴着标题那一行，比标题的视觉高度再大一号，点起来不费劲 */
 .x {
+  flex: 0 0 auto;
   display: grid;
   place-items: center;
-  width: 1.7rem;
-  height: 1.7rem;
+  width: 2.1rem;
+  height: 2.1rem;
   border-radius: 50%;
-  font-size: 0.75rem;
-  color: var(--muted);
+  font-size: 0.95rem;
+  line-height: 1;
+  color: rgba(255, 255, 255, 0.7);
   background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  transition:
+    color 0.2s var(--ease-out),
+    background 0.2s var(--ease-out),
+    transform 0.2s var(--ease-out);
 }
 
 .x:hover {
   color: #fff;
   background: rgba(255, 255, 255, 0.18);
+  transform: scale(1.05);
+}
+
+.x:active {
+  transform: scale(0.96);
 }
 
 .grid::-webkit-scrollbar {
