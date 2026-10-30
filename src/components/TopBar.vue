@@ -186,39 +186,54 @@ function labelOf(id: string) {
   box-shadow: 0 0 10px rgba(224, 177, 84, 0.7);
 }
 
-/* ---- 账号 ---- */
+/* ---- 账号 ----
+/*
+ * 头像 + 昵称装进一颗胶囊里，和左边平台统计是同一套材质：
+ * 没接自定义资料时左边那组可能整块透明（.flat），这时胶囊就是
+ * 右上角唯一一块「有厚度」的东西，它得自己立得住。
+ * 高度对齐平台的 1.95rem，两行视线才是平的。
+ */
 .who {
   display: inline-flex;
   align-items: center;
-  gap: 0.55rem;
-  padding: 0.2rem 0.6rem 0.2rem 0.25rem;
-  border: 0;
+  gap: 0.5rem;
+  height: 2.05rem;
+  padding: 0 0.8rem 0 0.2rem;
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 999px;
-  background: transparent;
+  background: rgba(10, 12, 18, 0.34);
+  box-shadow:
+    0 8px 26px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.04);
+  backdrop-filter: blur(16px) saturate(1.15);
   color: inherit;
   font: inherit;
   cursor: pointer;
-  transition: background 0.2s var(--ease-out);
+  transition:
+    background 0.2s var(--ease-out),
+    border-color 0.2s var(--ease-out);
 }
 
 .who:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(18, 21, 30, 0.52);
+  border-color: rgba(255, 255, 255, 0.12);
 }
 
 .avatar,
 .avatar-img {
   display: grid;
   place-items: center;
-  width: 1.7rem;
-  height: 1.7rem;
+  flex: 0 0 auto;
+  width: 1.6rem;
+  height: 1.6rem;
   border-radius: 50%;
-  font-size: 0.78rem;
+  font-size: 0.72rem;
   font-weight: 700;
   color: #fff;
   background: linear-gradient(140deg, #4a6cd4, #8a4ad4);
   box-shadow:
     0 0 0 1px rgba(255, 255, 255, 0.14),
-    0 6px 18px rgba(0, 0, 0, 0.35);
+    0 4px 14px rgba(0, 0, 0, 0.3);
 }
 
 /* 自定义头像：裁成圆，和首字兜底一样大，换过去不会跳一下 */
