@@ -45,11 +45,10 @@ const badge = computed(() => providerLabel(props.game.provider));
     </div>
 
     <div class="label">
+      <!-- 图标 + 游戏名一行：平台信息交给图标表达（悬停有全名，
+           详情面板的 eyebrow 也还写着平台），不再占一行文字。 -->
+      <ProviderIcon class="label-icon" :provider="game.provider" :title="badge" />
       <span class="name">{{ game.title }}</span>
-      <span class="provider">
-        <ProviderIcon :provider="game.provider" />
-        {{ badge }}
-      </span>
     </div>
 
     <span v-if="favorite" class="star" title="已收藏">★</span>
@@ -128,13 +127,21 @@ const badge = computed(() => providerLabel(props.game.provider));
   position: absolute;
   inset: auto 0 0 0;
   display: flex;
-  flex-direction: column;
-  gap: 0.15em;
+  align-items: flex-start;
+  gap: 0.42em;
   padding: 0.9em 0.85em 0.75em;
   background: linear-gradient(0deg, rgba(3, 4, 8, 0.92) 12%, transparent 100%);
 }
 
+/* 图标对齐到标题的第一行，不要跟着两行标题垂直居中 */
+.label-icon {
+  margin-top: 0.16em;
+  font-size: 0.86rem;
+}
+
 .name {
+  flex: 1 1 auto;
+  min-width: 0;
   font-size: 0.86rem;
   font-weight: 600;
   line-height: 1.25;
@@ -150,6 +157,7 @@ const badge = computed(() => providerLabel(props.game.provider));
   gap: 0.32em;
   font-size: 0.68rem;
   letter-spacing: 0.04em;
+  line-height: 1;
   color: var(--faint);
 }
 
