@@ -355,9 +355,8 @@ function onPadIntent(intent: PadIntent) {
       if (detailOpen.value) detailOpen.value = false;
       else openSettings();
       break;
-    case "guide":
-      void toggleFullScreen();
-      break;
+    // guide（手柄中间的 Xbox/PS 键）以前直接切全屏，等于又一个
+    // 「按一下就掉出全屏」的坑。这里不用它：全屏只留在设置里（键盘另有 F）。
   }
 }
 

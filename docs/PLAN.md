@@ -472,8 +472,12 @@ com.epicgames.launcher://apps/<AppName>?action=uninstall&silent=true
 **现象**：Windows 上全屏时按手柄 B，界面掉出全屏。`back()` 的兜底分支
 （关无可关时）会调 `leaveFullScreen()`，而手柄 **B(east)** 和键盘 **Esc** 都走 `back()`。
 
+同一类坑还有第二个：**Guide 键**（手柄中间的 Xbox/PS 键）原先直接调
+`toggleFullScreen()`，一样是「按一下就掉出全屏」。现在这个绑定也去掉了。
+
 **修法**：`back()` 只管「关浮层」——启动遮罩 / 搜索 / 卸载确认 / 设置 / 详情，
-全关了之后就什么也不做，**不再碰全屏**。全屏只剩两个入口：
+全关了之后就什么也不做，**不再碰全屏**；Guide 键不再绑全屏。
+全屏只剩两个入口：
 
 - 设置中心的「全屏」那一行
 - 键盘 `F` 快捷键（提示条里仍然写着）
