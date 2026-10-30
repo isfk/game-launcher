@@ -113,6 +113,7 @@ const gridRef = ref<{
   openDetail: () => boolean;
   favorite: () => boolean;
   reset: (startKey?: string) => void;
+  stepCard: (dir: number) => boolean;
   stepPlatform: (dir: number) => boolean;
   startMove: () => boolean;
   finishMove: () => boolean;
@@ -541,10 +542,12 @@ function onPadIntent(intent: PadIntent) {
         return;
       }
       if (intent.button === "south") gridRef.value?.launch();
-      else if (intent.button === "lb") {
-        if (gridRef.value?.stepPlatform(-1)) sfx.move();
-      } else if (intent.button === "rb") {
-        if (gridRef.value?.stepPlatform(1)) sfx.move();
+      else if (intent.button === "lb" || intent.button === "rb") {
+        // 肩键 = 上一张 / 下一张（和方向键左右同义，但不会跑去平台行）
+        if (gridRef.value?.stepCard(intent.button === "lb" ? -1 : 1)) sfx.move();
+      } else if (intent.button === "lt" || intent.button === "rt") {
+        // 扳机 = 换平台（「全部 → 各平台」轮转）
+        if (gridRef.value?.stepPlatform(intent.button === "lt" ? -1 : 1)) sfx.move();
       } else if (intent.button === "north") {
         // Y 起手不立刻开详情：短按要能开详情、长按要能进搬动模式，
         // 只能等「松开」或者「按住够久」来定夺

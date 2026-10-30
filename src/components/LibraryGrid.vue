@@ -110,6 +110,14 @@ const closeCap = computed(() => (usingPad.value ? glyphsFor(padKind.value).back.
 /** 平台 tab 里的光标 */
 const tabIndex = ref(0);
 
+/**
+ * 平台行的可选项：0 号是「全部」，之后跟着各平台。
+ *
+ * 顺序必须和 ProviderStats 画出来的胶囊一致 —— 下标就是焦点下标，
+ * 少一颗「全部」的话，肩键能轮到的档位和方向键能挑到的档位就对不上了。
+ */
+const tabIds = computed(() => ["", ...lib.providerCounts.map((it) => it.id)]);
+
 // ---- 调整顺序（拿起 / 挪动 / 放下）----
 //
 // 手柄和键盘走这条状态机；鼠标拖拽共用同一个 preview，
@@ -539,6 +547,21 @@ function scrollTo(i: number, center = false) {
 
 // 焦点一动就保证可见，同时把「当前游戏」通知给外层：
 // 整页的背景大图跟着光标换（不然一直是打开网格前那一部）
+/*
+ * 换筛选、重新扫描之后列表会整块变：留下的卡片用 FLIP 滑到新位置，
+ * 而不是「唰」地闪一下重排。用 key 序列当触发条件 —— 顺序或成员变了才演，
+ * 光标移动、收藏星标这类不改变成员集合的更新不掺和。
+ */
+watch(
+  () => props.games.map((g) => g.key).join("|"),
+  () => {
+    if (moving.value) return; // 搬动模式有自己的 FLIP，别抢
+    const before = snapshot();
+    cancelCellAnims();
+    void animateFrom(before);
+  },
+);
+
 watch(cursor, () => {
   if (!drag?.active) scrollTo(cursor.value);
   const game = shown.value[cursor.value];
@@ -580,7 +603,7 @@ function reset(startKey?: string) {
 function move(dx: number, dy: number): boolean {
   if (moving.value) return moveCard(dx, dy);
 
-  const tabs = lib.providerCounts.length;
+  const tabs = tabIds.value.length;
 
   if (zone.value === "tabs") {
     if (dy > 0) {
@@ -590,6 +613,9 @@ function move(dx: number, dy: number): boolean {
     }
     if (dx && tabs) {
       tabIndex.value = Math.min(tabs - 1, Math.max(0, tabIndex.value + dx));
+      // 焦点落在哪颗就筛哪颗：站在平台行上看得到下面列表的变化，
+      // 不用再按一次确认（按了也只是确认同一颗）
+      applyTab();
       return true;
     }
     return false;
@@ -597,7 +623,7 @@ function move(dx: number, dy: number): boolean {
 
   // 卡片区：最上面一行再往上，就上到平台那一行（焦点落在当前筛选对应的那颗）
   if (dy < 0 && tabs && cursor.value < COLS) {
-    const at = lib.providerCounts.findIndex((it) => it.id === lib.platformFilter);
+    const at = tabIds.value.indexOf(lib.platformFilter);
     tabIndex.value = at >= 0 ? at : 0;
     zone.value = "tabs";
     return true;
@@ -626,13 +652,25 @@ function pick(i: number) {
 }
 
 /**
- * stepPlatform 肩键换平台：LB / RB 在「全部 → 各平台」之间轮转。
+ * stepCard 肩键换卡片：LB / RB 永远只干这件事，不管焦点在哪一行。
+ *
+ * 方向键是「按格子走」（所以 ↑ 能上到平台行），肩键是「上一张 / 下一张」，
+ * 语义不同：在平台行上按肩键，先把焦点收回来再去换卡。
+ */
+function stepCard(dir: number): boolean {
+  if (moving.value) return moveCard(dir, 0);
+  if (zone.value === "tabs") zone.value = "cards";
+  return move(dir, 0);
+}
+
+/**
+ * stepPlatform 扳机换平台：LT / RT 在「全部 → 各平台」之间轮转。
  *
  * 和 tab 行是同一份状态：肩键直接改筛选，方向键上移是精确挑那颗。
  * 主机上两种习惯都有，一起给，谁也不碍谁。
  */
 function stepPlatform(dir: number): boolean {
-  const ids = ["", ...lib.providerCounts.map((it) => it.id)];
+  const ids = tabIds.value;
   if (ids.length < 2) return false;
   const at = Math.max(0, ids.indexOf(lib.platformFilter));
   const next = ids[(at + dir + ids.length) % ids.length] ?? "";
@@ -656,9 +694,11 @@ function focusedGame(): Game | null {
 
 /** applyTab 让焦点所在的那颗平台胶囊生效，并把光标落到第一部。 */
 function applyTab() {
-  const item = lib.providerCounts[tabIndex.value];
-  if (!item) return;
-  lib.setPlatformFilter(item.id);
+  const id = tabIds.value[tabIndex.value];
+  if (id === undefined) return;
+  // 已经在「全部」上再确认一次还是全部，不需要 toggle 掉
+  if (id === "" && lib.platformFilter === "") return;
+  lib.setPlatformFilter(id);
   cursor.value = 0;
 }
 
@@ -669,7 +709,7 @@ function applyTab() {
  * 屏幕上根本没有卡片高亮，玩家会觉得按到了不存在的东西。
  */
 function confirmTab(): boolean {
-  if (!lib.providerCounts.length) return false;
+  if (tabIds.value.length < 2) return false;
   applyTab();
   zone.value = "cards";
   return true;
@@ -724,6 +764,7 @@ defineExpose({
   openDetail,
   favorite,
   reset,
+  stepCard,
   stepPlatform,
   startMove,
   finishMove,
@@ -745,6 +786,8 @@ defineExpose({
           :items="lib.providerCounts"
           :active="lib.platformFilter"
           :focused="zone === 'tabs' ? tabIndex : -1"
+          with-all
+          :total="lib.providerCounts.reduce((n, it) => n + it.count, 0)"
           @pick="lib.setPlatformFilter"
         />
         <button

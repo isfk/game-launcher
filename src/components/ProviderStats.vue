@@ -18,6 +18,10 @@ const props = defineProps<{
   active?: string;
   /** 焦点落在第几颗胶囊上（-1 / 不给 = 没有焦点，鼠标点的时候也走这个） */
   focused?: number;
+  /** 要不要在开头多一颗「全部」—— 网格里平台行需要它当出口 */
+  withAll?: boolean;
+  /** 「全部」那颗上的数字（整库总数，不含已隐藏） */
+  total?: number;
 }>();
 
 const emit = defineEmits<{ pick: [id: string] }>();
@@ -38,10 +42,23 @@ function labelOf(id: string) {
   <div class="sources" :class="{ flat: !props.items.length }">
     <template v-if="props.items.length">
       <button
+        v-if="props.withAll"
+        class="src all"
+        :class="{ on: !props.active, focus: props.focused === 0 }"
+        :title="props.active ? '显示全部' : '已经在看全部'"
+        @click="emit('pick', '')"
+      >
+        <span class="label">全部</span>
+        <span class="num">{{ props.total ?? 0 }}</span>
+      </button>
+      <button
         v-for="(item, i) in props.items"
         :key="item.id"
         class="src"
-        :class="{ on: props.active === item.id, focus: props.focused === i }"
+        :class="{
+          on: props.active === item.id,
+          focus: props.focused === i + (props.withAll ? 1 : 0),
+        }"
         :title="props.active === item.id ? '点击显示全部' : `只看 ${labelOf(item.id)}`"
         @click="emit('pick', item.id)"
       >
@@ -62,7 +79,13 @@ function labelOf(id: string) {
   display: inline-flex;
   align-items: center;
   height: 1.95rem;
-  padding: 0 0.15rem;
+  /*
+   * 上下左右都留同样的内边距：里层胶囊的圆角被裁到「父圆角 - padding」，
+   * 和父胶囊的弧线才是同心的。以前只留左右内边距，里层顶着上下边缘，
+   * 两条弧各画各的，看着就别扭。
+   */
+  padding: 0.2rem;
+  gap: 0.1rem;
   border-radius: 999px;
   background: var(--capsule-bg);
   border: 1px solid var(--capsule-line);
@@ -86,7 +109,7 @@ function labelOf(id: string) {
   align-items: center;
   gap: 0.4rem;
   height: 100%;
-  padding: 0 0.75rem;
+  padding: 0 0.7rem;
   border: 0;
   border-radius: 999px;
   background: transparent;
@@ -119,18 +142,6 @@ function labelOf(id: string) {
 
 .src.on .label {
   color: rgba(255, 255, 255, 0.72);
-}
-
-/* 组间发丝线：只在中间画，两端不画 */
-.src:not(:last-child)::after {
-  content: "";
-  position: absolute;
-  right: 0;
-  top: 50%;
-  width: 1px;
-  height: 0.9rem;
-  transform: translateY(-50%);
-  background: rgba(255, 255, 255, 0.09);
 }
 
 .label {

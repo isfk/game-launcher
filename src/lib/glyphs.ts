@@ -4,9 +4,9 @@
  * south = 下方那颗键，north = 上方，west = 左，east = 右。
  * 所以「启动 / 详情 / 收藏 / 返回」的位置固定，只有画的符号不同：
  *
- * - Xbox：A 启动、Y 详情、X 收藏、B 返回、LB / RB 换一组
- * - PlayStation：✕ 启动、△ 详情、□ 收藏、○ 返回、L1 / R1 换一组
- * - Switch：B 启动、X 详情、Y 收藏、A 返回、L / R 换一组（任天堂物理排布相反）
+ * - Xbox：A 启动、Y 详情、X 收藏、B 返回；LB / RB 换卡片，LT / RT 换平台
+ * - PlayStation：✕ 启动、△ 详情、□ 收藏、○ 返回；L1 / R1 换卡片，L2 / R2 换平台
+ * - Switch：B 启动、X 详情、Y 收藏、A 返回；L / R 换卡片，ZL / ZR 换平台
  */
 export type PadKind = "xbox" | "playstation" | "switch";
 
@@ -18,9 +18,12 @@ export interface Glyph {
 }
 
 export interface PadGlyphs {
-  /** 左右肩键：主机上「换一组内容」的标准位置 */
+  /** 左右肩键：主机上「换一张 / 上一页」的标准位置 */
   prev: string;
   next: string;
+  /** 左右扳机：和肩键分开用 —— 肩键换卡片，扳机换平台 */
+  triggerL: string;
+  triggerR: string;
   confirm: Glyph;
   detail: Glyph;
   favorite: Glyph;
@@ -35,6 +38,8 @@ const TABLES: Record<PadKind, PadGlyphs> = {
   xbox: {
     prev: "LB",
     next: "RB",
+    triggerL: "LT",
+    triggerR: "RT",
     confirm: { text: "A", tone: "xb-green" },
     detail: { text: "Y", tone: "xb-yellow" },
     favorite: { text: "X", tone: "xb-blue" },
@@ -45,6 +50,8 @@ const TABLES: Record<PadKind, PadGlyphs> = {
   playstation: {
     prev: "L1",
     next: "R1",
+    triggerL: "L2",
+    triggerR: "R2",
     confirm: { text: "✕", tone: "ps-blue" },
     detail: { text: "△", tone: "ps-green" },
     favorite: { text: "□", tone: "ps-pink" },
@@ -55,6 +62,8 @@ const TABLES: Record<PadKind, PadGlyphs> = {
   switch: {
     prev: "L",
     next: "R",
+    triggerL: "ZL",
+    triggerR: "ZR",
     confirm: { text: "B", tone: "sw" },
     detail: { text: "X", tone: "sw" },
     favorite: { text: "Y", tone: "sw" },

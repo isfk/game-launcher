@@ -46,7 +46,8 @@ const hints = computed<Hint[]>(() => {
     if (context.value === "grid") {
       return [
         { cap: "↑↓←→", label: "移动" },
-        { cap: `${g.prev}/${g.next}`, label: "平台" },
+        { cap: `${g.prev}/${g.next}`, label: "上/下一张" },
+        { cap: `${g.triggerL}/${g.triggerR}`, label: "平台" },
         { cap: `长按 ${g.detail.text}`, tone: g.detail.tone, label: "调整顺序" },
         { cap: g.favorite.text, tone: g.favorite.tone, label: "收藏" },
         { cap: g.menu, tone: "pill", label: "设置" },
