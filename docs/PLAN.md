@@ -705,7 +705,7 @@ go run scripts/genicon/main.go -out resources/icon.png
 |---|---|---|
 | **M0** | 脚手架、PS5 首页（卡片/主色背景/提示条/时钟）、焦点导航、手柄帧通道、Steam 扫描 + 解析测试 | ✅ 完成 |
 | **M1** | 封面走 `art://` ✅、主色从封面提取 ✅、CDN 图落地离线缓存 ✅、游玩时长与分类 ✅、游戏退出自动回前台 ✅ | ✅ 完成 |
-| **M2** | 详情页竖向导航 ✅、设置持久化到 Go ✅、虚拟手柄 E2E（待办） | 进行中 |
+| **M2** | 详情页竖向导航 ✅、设置持久化到 Go ✅、虚拟手柄 E2E ✅ | ✅ 完成 |
 | **M3** | 手动添加游戏 ✅（`Dialog.Open` 选 exe/app）、移除 ✅、搜索 ✅、收藏置顶 ✅ | ✅ 完成 |
 | **M4** | `mygo build -platform windows/amd64` ✅、图标 ✅、全屏盖任务栏保险 ✅、NSIS 安装包（待定：需 makensis）、Windows 真机验收 | 进行中 |
 | **M5** | Epic Provider ✅、WeGame Provider ✅ | ✅ 完成 |
@@ -734,6 +734,22 @@ bun run dev                            # mygo dev：Vite + 开发版应用
   `store.steampowered.com` 拉图，直连超时会让 `go test` 挂几分钟（CPU 时间为 0，很像卡死）
 - 浏览器里打开 `http://localhost:5173` 可脱离应用调样式（store 会自动用本地样例数据）
 - 截图证据：`build/shots/`（gitignored）
+
+### 虚拟手柄 E2E（`scripts/e2e-pad.py`）
+
+没有真实手柄也能测手柄逻辑：脚本往 `window.__padQueue` 推帧，
+`usePad` 用**和真实手柄完全相同的管线**处理（边沿检测、方向连发都跑到），
+生产环境里这个队列永远是 undefined，所以那段代码不会真的做事。
+
+覆盖 9 项：方向移动、按住连发、Y 开详情、B 收详情、X 收藏、
+Options 开设置、设置内竖向导航、B 关设置、键位体系跟随手柄类型。
+
+```bash
+GOFLAGS=-tags=e2e mygo build -debug -skip-dmg -skip-notarize
+LAUNCHER_STEAM_DIR=/tmp/fakesteam MYGO_AUTOMATION=/tmp/gl.sock \
+  "build/darwin-arm64/Game Launcher.app/Contents/MacOS/Game Launcher" &
+python3 scripts/e2e-pad.py /tmp/gl.sock      # 退出码 0 = 全过
+```
 
 **真窗口验证**（WebView 里的实际情况，浏览器看不出来）：
 

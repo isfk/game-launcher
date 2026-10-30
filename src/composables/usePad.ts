@@ -94,13 +94,28 @@ export function usePad(onIntent: (intent: PadIntent) => void, onKind?: (kind: st
     }
   }
 
+  // ---- 端到端测试用的帧注入 ----
+  // 测试脚本通过 eval 往 window.__padQueue 里推帧，这里取出来喂给 applyFrame，
+  // 走的是**和真实手柄完全一样**的管线（边沿检测、方向连发都能测到）。
+  // 生产环境里这个队列永远是 undefined，所以这段代码不会真的做事。
+  type PadWindow = Window & { __padQueue?: State[][] };
+  let drainTimer: number | undefined;
+
+  function drainDebugQueue() {
+    const queue = (window as PadWindow).__padQueue;
+    if (!queue?.length) return;
+    while (queue.length) applyFrame(queue.shift() as State[]);
+  }
+
   onMounted(() => {
     void loop();
+    drainTimer = window.setInterval(drainDebugQueue, 30);
   });
 
   onUnmounted(() => {
     stopped = true;
     clearTimers();
+    if (drainTimer !== undefined) window.clearInterval(drainTimer);
     channel?.close();
   });
 }
