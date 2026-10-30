@@ -512,6 +512,25 @@ WeGame 的 `tencent://` 协议需要它内部的游戏 id，没有稳定来源�
 **卸载**：不支持——由 WeGame 客户端管理，详情面板不显示卸载按钮，
 误调 `Uninstall` 会提示「请在 WeGame 客户端里卸载」。
 
+## 4.40.1 顶栏平台统计（不做「胶囊塞一行字」）
+
+右上角原来是 `▣▣▣ Steam + Epic + WeGame · 6 部` 一颗胶囊，信息糊成一团。
+现在按组排开：
+
+```
+▣ STEAM 2 │ ▣ EPIC 2 │ ◔ WEGAME 2      Ⓜ Master   10:04
+```
+
+- **组间发丝线**（1px、0.9rem 高、只在中间画），组内不再用分隔符
+- **平台名当标签用**：0.6rem、`letter-spacing: .16em`、大写、42% 白
+- **数量**：0.78rem / 600 字重 / `tabular-nums`——视线先抓数字，再看平台
+- **容器几乎看不见**：磨砂底 `rgba(10,12,18,.34)` + 模糊 + 1px 内描边，
+  只有演示数据时整块透明（`.flat`）
+- 账号头像加 1px 描边环，时钟 1.05rem 等宽数字
+
+数字来源是前端 `providerCounts`（按 `Game.provider` 聚合，顺序固定
+steam → epic → wegame → manual），后端不用改。
+
 ## 4.40 provider 彩色图标
 
 `src/components/ProviderIcon.vue` 在卡片角标、详情 eyebrow、顶栏来源处各显示一个小图标。

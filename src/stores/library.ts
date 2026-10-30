@@ -113,6 +113,15 @@ export const useLibrary = defineStore("library", () => {
     index.value = found >= 0 ? found : 0;
   }
 
+  /** 顶栏用：按平台统计数量，顺序固定，没有的平台不出现。 */
+  const providerCounts = computed(() => {
+    const counts = new Map<string, number>();
+    for (const g of games.value) counts.set(g.provider, (counts.get(g.provider) ?? 0) + 1);
+    return (["steam", "epic", "wegame", "manual"] as const)
+      .filter((id) => counts.has(id))
+      .map((id) => ({ id, count: counts.get(id) ?? 0 }));
+  });
+
   /** withFavoritesFirst 收藏置顶，其余保持后端给的顺序。 */
   function withFavoritesFirst(list: Game[]): Game[] {
     if (!favorites.value.size) return list;
@@ -246,6 +255,7 @@ export const useLibrary = defineStore("library", () => {
     favorites,
     soundEnabled,
     iconPos,
+    providerCounts,
     cycleIconPos,
     selected,
     isDemo,

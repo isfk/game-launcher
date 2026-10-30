@@ -608,7 +608,7 @@ onUnmounted(() => {
 <template>
   <div class="home" :class="{ expanded: detailOpen || settingsOpen }">
     <Backdrop :game="lib.selected" />
-    <TopBar :source="lib.source" :count="lib.games.length" />
+    <TopBar :breakdown="lib.providerCounts" />
 
     <section class="meta" :style="{ '--accent': accentOf(lib.selected) }">
       <p v-if="lib.loading" class="status">正在扫描游戏库…</p>
