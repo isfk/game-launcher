@@ -191,3 +191,30 @@ func TestSortDefaultsAndNormalizes(t *testing.T) {
 		}
 	}
 }
+
+// TestLoadFillsLegacyDefaults 覆盖老配置文件：缺 iconPos/sortBy/sortDir/gridCols
+// 的时候必须回落到默认值，而不是把零值（0 / 空串）交给界面。
+func TestLoadFillsLegacyDefaults(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	// 手写一份「旧版本」的配置：只有音效和收藏
+	legacy := `{"soundEnabled": false, "favorites": ["steam:1"]}`
+	if err := os.WriteFile(store.Path(), []byte(legacy), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.IconPos != IconPosBottomLeft {
+		t.Errorf("IconPos = %q，期望 %q", got.IconPos, IconPosBottomLeft)
+	}
+	if got.SortBy != SortByRecent || got.SortDir != SortDesc {
+		t.Errorf("排序 = %q/%q，期望 recent/desc", got.SortBy, got.SortDir)
+	}
+	if got.SoundEnabled {
+		t.Error("音效开关应该保留旧配置里的 false")
+	}
+}

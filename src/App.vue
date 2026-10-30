@@ -5,6 +5,7 @@ import DetailDrawer from "./components/DetailDrawer.vue";
 import GameCard from "./components/GameCard.vue";
 import HintBar from "./components/HintBar.vue";
 import LaunchOverlay from "./components/LaunchOverlay.vue";
+import LibraryGrid from "./components/LibraryGrid.vue";
 import SearchBar from "./components/SearchBar.vue";
 import SettingsSheet from "./components/SettingsSheet.vue";
 import TopBar from "./components/TopBar.vue";
@@ -21,6 +22,22 @@ const lib = useLibrary();
 const railEl = ref<HTMLElement | null>(null);
 const trackEl = ref<HTMLElement | null>(null);
 const shift = ref(0);
+
+/**
+ * 大库窗口化渲染：只挂载焦点附近这些卡片。
+ *
+ * 为什么必须做：几百部游戏时，每张卡都是一个 <img> + 渐变 + 事件，
+ * 全渲染会让滚动卡顿、内存飙升（Steam 库里三四百部很常见）。
+ * 半径取 12，是因为屏幕上一屏最多看到 7 张左右，多出来的用于
+ * 滑动时提前 آماده，不会看到空白。
+ *
+ * 注意：占位元素和卡片同宽同高、都是 track 的直接子节点，
+ * 所以下标映射和 `track.children[index]` 的取法都不受影响。
+ */
+const RENDER_RADIUS = 12;
+function inRenderWindow(i: number) {
+  return Math.abs(i - lib.index) <= RENDER_RADIUS;
+}
 
 /**
  * centerFocused 把当前焦点卡滑到轨道中间。
@@ -59,6 +76,8 @@ const settingsOpen = ref(false);
 // 卸载的二次确认：进入后底部换成确认条，按 Esc / 取消返回。
 // 请求在飞时 busy 为 true，按钮禁用，避免连点发两次。
 const searchOpen = ref(false);
+/** 全屏网格（「全部游戏」）：几百部游戏时用它扫读，比横着按右方向快得多 */
+const gridOpen = ref(false);
 
 const uninstallAsk = ref(false);
 
@@ -66,12 +85,22 @@ const uninstallAsk = ref(false);
 // 具体焦点停在哪一项由面板自己管（见 composables/usePanelNav.ts）。
 const detailRef = ref<{ move: (d: number) => boolean; activate: () => boolean; reset: () => void } | null>(null);
 const settingsRef = ref<{ move: (d: number) => boolean; activate: () => boolean; reset: () => void } | null>(null);
+const gridRef = ref<{
+  move: (dx: number, dy: number) => boolean;
+  activate: () => boolean;
+  reset: (startKey?: string) => void;
+} | null>(null);
 const uninstalling = ref(false);
 let uninstallTimer: number | undefined;
 const launching = ref<{ title: string; status: "starting" | "failed"; message?: string } | null>(null);
 
 const overlayOpen = computed(
-  () => detailOpen.value || settingsOpen.value || searchOpen.value || launching.value !== null,
+  () =>
+    detailOpen.value ||
+    settingsOpen.value ||
+    searchOpen.value ||
+    gridOpen.value ||
+    launching.value !== null,
 );
 
 // logo 图加载失败就退回文字标题
@@ -236,6 +265,26 @@ function closeDetail() {
   sfx.back();
 }
 
+function openGrid() {
+  if (overlayOpen.value) return;
+  sfx.confirm();
+  gridOpen.value = true;
+  gridRef.value?.reset(lib.selected?.key);
+}
+
+function closeGrid() {
+  if (!gridOpen.value) return;
+  sfx.back();
+  gridOpen.value = false;
+}
+
+/** 在网格里选中一部：关掉网格并把首页焦点落到它身上。 */
+function pickFromGrid(key: string) {
+  sfx.confirm();
+  gridOpen.value = false;
+  lib.focusKey(key);
+}
+
 function openSearch() {
   if (overlayOpen.value) return;
   sfx.confirm();
@@ -329,6 +378,21 @@ function onPadIntent(intent: PadIntent) {
   usingPad.value = true;
   document.body.classList.add("using-pad");
 
+  // 网格模式：方向键在网格里走，A 选中，B 关闭
+  if (gridOpen.value) {
+    if (intent.kind === "nav") {
+      const dx = intent.dir === "left" ? -1 : intent.dir === "right" ? 1 : 0;
+      const dy = intent.dir === "up" ? -1 : intent.dir === "down" ? 1 : 0;
+      if (gridRef.value?.move(dx, dy)) sfx.move();
+      return;
+    }
+    if (intent.kind === "button") {
+      if (intent.button === "south") gridRef.value?.activate();
+      else if (intent.button === "east") closeGrid();
+    }
+    return;
+  }
+
   // 搜索是键盘场景：手柄这边只允许「返回」把它关掉
   if (searchOpen.value) {
     if (intent.kind === "button" && intent.button === "east") closeSearch();
@@ -399,6 +463,38 @@ function onKeydown(e: KeyboardEvent) {
   keyboardUsed = true;
   usingPad.value = false;
   document.body.classList.remove("using-pad");
+
+  // 网格是全屏模态：方向键在网格内移动，Enter 选中，Esc/G 退出
+  if (gridOpen.value) {
+    const handled = (() => {
+      switch (e.key) {
+        case "ArrowLeft":
+          return gridRef.value?.move(-1, 0) ?? false;
+        case "ArrowRight":
+          return gridRef.value?.move(1, 0) ?? false;
+        case "ArrowUp":
+          return gridRef.value?.move(0, -1) ?? false;
+        case "ArrowDown":
+          return gridRef.value?.move(0, 1) ?? false;
+        case "Enter":
+        case " ":
+          return gridRef.value?.activate() ?? false;
+        case "Escape":
+        case "Backspace":
+        case "g":
+        case "G":
+          closeGrid();
+          return true;
+        default:
+          return false;
+      }
+    })();
+    if (handled) {
+      e.preventDefault();
+      sfx.move();
+    }
+    return;
+  }
 
   // 搜索框自己处理输入：这里只兜住「怎么退出」，别抢方向键
   if (searchOpen.value) {
@@ -530,6 +626,11 @@ function onKeydown(e: KeyboardEvent) {
       e.preventDefault();
       openSearch();
       break;
+    case "g":
+    case "G":
+      e.preventDefault();
+      openGrid();
+      break;
     case "f":
     case "F":
       void toggleFullScreen();
@@ -629,8 +730,11 @@ onUnmounted(() => {
 </script>
 
 <template>
-  <div class="home" :class="{ expanded: detailOpen || settingsOpen }">
+  <!-- 最外层：整页共享的那张大图就铺在这一层，首页和网格都透过去 -->
+  <div class="app" :style="{ '--accent-glow': accentOf(lib.selected) }">
     <Backdrop :game="lib.selected" />
+
+    <div v-show="!gridOpen" class="home" :class="{ expanded: detailOpen || settingsOpen }">
     <TopBar :breakdown="lib.providerCounts" :active="lib.platformFilter" @filter="lib.setPlatformFilter" />
 
     <section class="meta" :style="{ '--accent': accentOf(lib.selected) }">
@@ -654,18 +758,29 @@ onUnmounted(() => {
 
     <section ref="railEl" class="rail" aria-label="游戏">
       <div ref="trackEl" class="track" :style="{ transform: `translate3d(calc(${shift}px + var(--rail-nudge)), 0, 0)` }">
-        <GameCard
-          v-for="(game, i) in lib.games"
-          :key="game.key"
-          :game="game"
-          :focused="i === lib.index"
-          :favorite="lib.favorites.has(game.key)"
-          :icon-pos="lib.iconPos"
-          @pick="lib.focusKey(game.key)"
-          @activate="activate"
-        />
+        <template v-for="(game, i) in lib.games" :key="game.key">
+          <GameCard
+            v-if="inRenderWindow(i)"
+            :game="game"
+            :focused="i === lib.index"
+            :favorite="lib.favorites.has(game.key)"
+            :icon-pos="lib.iconPos"
+            @pick="lib.focusKey(game.key)"
+            @activate="activate"
+          />
+          <!-- 占位：顶住轨道宽度，但不创建图片和事件 -->
+          <div v-else class="card-slot" aria-hidden="true" />
+        </template>
       </div>
     </section>
+
+    <!-- 库超过一屏时给一条发丝进度线：知道自己排到第几个，比空翻好 -->
+    <div v-if="lib.games.length > 12" class="rail-progress" aria-hidden="true">
+      <span
+        class="thumb"
+        :style="{ left: `calc(${(lib.index / Math.max(1, lib.games.length - 1)) * 100}% - 3%)` }"
+      />
+    </div>
 
     <DetailDrawer
       ref="detailRef"
@@ -693,12 +808,6 @@ onUnmounted(() => {
       @close="closeSearch"
     />
 
-    <HintBar
-      :pad="usingPad"
-      :kind="padKind"
-      :context="settingsOpen ? 'settings' : detailOpen ? 'detail' : 'home'"
-    />
-
     <Transition name="toast">
       <p v-if="toast" class="toast">{{ toast }}</p>
     </Transition>
@@ -719,12 +828,46 @@ onUnmounted(() => {
       :message="launching.message"
       @close="launching = null"
     />
+    </div>
+
+    <LibraryGrid
+      v-if="gridOpen"
+      ref="gridRef"
+      :games="lib.games"
+      :start-key="lib.selected?.key"
+      :icon-pos="lib.iconPos"
+      :favorites="lib.favorites"
+      @close="closeGrid"
+      @focus="lib.focusKey"
+      @select="pickFromGrid"
+    />
+
+    <HintBar
+      :pad="usingPad"
+      :kind="padKind"
+      :context="gridOpen ? 'grid' : settingsOpen ? 'settings' : detailOpen ? 'detail' : 'home'"
+    />
+
   </div>
+
 </template>
 
 <style scoped>
+/* 最外层容器：整页共享的背景（大图 + 光晕 + 暗角）铺在这里 */
+.app {
+  position: relative;
+  height: 100%;
+  isolation: isolate;
+}
+
+.app > :deep(.backdrop) {
+  z-index: 0;
+}
+
+
 .home {
   position: relative;
+  z-index: 1; /* 背景在最外层 .app，内容整体抬一层 */
   height: 100%;
   overflow: hidden;
 }
@@ -733,6 +876,38 @@ onUnmounted(() => {
  * 标题块贴着卡片带定位而不是按 top: 24vh —— 退出全屏后窗口变矮，
  * vh 跟着变，标签就会和卡片带错位。改成从底部往上算，关系就稳定了。
  */
+/* 窗口化渲染的占位：只占位，不画东西（半径够大，正常视线里看不到） */
+.card-slot {
+  flex: 0 0 auto;
+  width: var(--card-w, 22vh);
+  aspect-ratio: 2 / 3;
+  border-radius: 12px;
+}
+
+/* 大库的位置指示：一条极细的轨道 + 一小段滑块 */
+.rail-progress {
+  position: absolute;
+  z-index: 3;
+  left: 50%;
+  bottom: calc(11vh - 1.6rem);
+  width: min(26rem, 30vw);
+  height: 2px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.rail-progress .thumb {
+  position: absolute;
+  top: 0;
+  width: 6%;
+  height: 100%;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.65);
+  box-shadow: 0 0 10px rgba(255, 255, 255, 0.35);
+  transition: left 0.28s var(--ease-out);
+}
+
 .meta {
   position: absolute;
   left: 6.5vw;
@@ -891,23 +1066,6 @@ onUnmounted(() => {
   will-change: transform;
 }
 
-/*
- * 卡片带自己的压暗层。滚动容器在 Chromium 里会独立合成，
- * 不加这一层，背景光晕会在卡片带顶边留下一条硬边。
- */
-.rail::before {
-  content: "";
-  position: absolute;
-  inset: -6vh 0 -12vh 0;
-  z-index: -1;
-  pointer-events: none;
-  background: linear-gradient(
-    180deg,
-    rgba(5, 6, 10, 0) 0%,
-    rgba(5, 6, 10, 0.45) 55%,
-    rgba(5, 6, 10, 0.82) 100%
-  );
-}
 
 
 </style>

@@ -151,6 +151,12 @@ func (s *Store) Load() (Settings, error) {
 		}
 		return Default(), fmt.Errorf("config: 解析 %s 失败（已改名为 %s）: %w", s.Path(), backup, err)
 	}
+
+	// 老配置里没有新字段（Go 读出来是零值），或者被人手改成了怪值：
+	// 在这里统一收敛一次，界面就不会拿到 0 / 空串这类「看着合法、其实没意义」的值。
+	v.IconPos = NormalizeIconPos(v.IconPos)
+	v.SortBy = NormalizeSortBy(v.SortBy)
+	v.SortDir = NormalizeSortDir(v.SortDir)
 	return v, nil
 }
 

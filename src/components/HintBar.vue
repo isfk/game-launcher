@@ -14,7 +14,7 @@ import { glyphsFor } from "../lib/glyphs";
 const props = defineProps<{
   pad: boolean;
   kind?: "xbox" | "playstation" | "switch";
-  context?: "home" | "detail" | "settings";
+  context?: "home" | "detail" | "settings" | "grid";
 }>();
 
 const glyphs = computed(() => glyphsFor(props.kind));
@@ -31,7 +31,15 @@ interface Hint {
 const hints = computed<Hint[]>(() => {
   const g = glyphs.value;
 
+  // 手柄：键位跟着设备类型走（glyphsFor 决定符号）
   if (props.pad) {
+    if (context.value === "grid") {
+      return [
+        { cap: "↑↓←→", label: "移动" },
+        { cap: g.confirm.text, tone: g.confirm.tone, label: "选中" },
+        { cap: g.back.text, tone: g.back.tone, label: "关闭" },
+      ];
+    }
     if (context.value === "detail") {
       return [
         { cap: "↑↓", label: "选择" },
@@ -55,6 +63,14 @@ const hints = computed<Hint[]>(() => {
     ];
   }
 
+  // 键盘
+  if (context.value === "grid") {
+    return [
+      { cap: "↑↓←→", label: "移动" },
+      { cap: "Enter", label: "选中" },
+      { cap: "Esc", label: "关闭" },
+    ];
+  }
   if (context.value === "detail") {
     return [
       { cap: "↑↓", label: "选择" },
@@ -79,6 +95,7 @@ const hints = computed<Hint[]>(() => {
     { cap: "X", label: "收藏" },
     { cap: "S", label: "设置" },
     { cap: "/", label: "搜索" },
+    { cap: "G", label: "全部游戏" },
     { cap: "F", label: "全屏" },
     { cap: "R", label: "刷新" },
   ];

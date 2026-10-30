@@ -50,10 +50,8 @@ watch(
           @error="heroFailed[g.key] = heroOf(g)"
         />
         <div class="glow" />
-        <div class="wash" />
       </div>
     </TransitionGroup>
-    <div class="vignette" />
     <div class="grain" />
   </div>
 </template>
@@ -78,7 +76,7 @@ watch(
   height: 100%;
   object-fit: cover;
   transform: scale(1.04);
-  filter: blur(1px) saturate(1.06) brightness(0.72);
+  filter: blur(1px) saturate(1.06) brightness(0.8);
 }
 
 /* 用 2:3 封面顶替 16:9 hero 时，糊得更狠一点，别看出是竖图 */
@@ -103,17 +101,14 @@ watch(
       color-mix(in oklab, var(--accent-vivid) 62%, #31407e) 0%,
       transparent 76%
     );
-  opacity: 1;
+  /*
+   * 有大图时这层只是「染色」，不能盖住图：原来 opacity:1 会把整张图糊成一片纯色。
+   * 没有大图时再让它撒开（下面 :has 规则），那时它就是画面的全部气质。
+   */
+  opacity: 0.42;
   animation: drift 26s ease-in-out infinite alternate;
 }
 
-.wash {
-  position: absolute;
-  inset: 0;
-  background:
-    linear-gradient(180deg, rgba(5, 6, 10, 0.02) 0%, rgba(5, 6, 10, 0.18) 46%, rgba(5, 6, 10, 0.88) 100%),
-    linear-gradient(90deg, rgba(5, 6, 10, 0.14) 0%, rgba(5, 6, 10, 0) 48%, rgba(5, 6, 10, 0.22) 100%);
-}
 
 /* 细颗粒：压掉渐变的色带，带一点胶片味（内联 SVG，不打包图片） */
 .grain {
@@ -124,12 +119,6 @@ watch(
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-.vignette {
-  position: absolute;
-  inset: 0;
-  background: radial-gradient(130% 100% at 50% 45%, transparent 50%, rgba(0, 0, 0, 0.38) 100%);
-  pointer-events: none;
-}
 
 @keyframes drift {
   from {

@@ -1,5 +1,18 @@
 :root {
   color-scheme: dark;
+  /*
+   * 全应用的底色：深色竖向渐变 + 顶部一层当前游戏主色的淡光晕。
+   * 光晕颜色由 --accent-glow 提供（App 里跟着选中游戏变），
+   * 其他浮层/整页直接复用 var(--app-bg)，保证观感一致。
+   */
+  --app-bg:
+    radial-gradient(
+      130% 72% at 50% -16%,
+      color-mix(in oklab, var(--accent-glow, #5b6b8c) 20%, transparent) 0%,
+      transparent 62%
+    ),
+    linear-gradient(180deg, #0a0c13 0%, #07080e 52%, #05060a 100%);
+
   --fg: #f2f4f8;
   --muted: rgba(242, 244, 248, 0.6);
   --faint: rgba(242, 244, 248, 0.34);
@@ -37,7 +50,7 @@ body,
 }
 
 body {
-  background: #05060a;
+  background: var(--app-bg);
   color: var(--fg);
   overflow: hidden;
   user-select: none;
@@ -55,6 +68,13 @@ button {
   background: none;
   border: 0;
   cursor: pointer;
+  /*
+   * 必须显式关掉原生外观：macOS 的 WebKit 会给 <button> 画一层系统边框和
+   * 自己的圆角（约 5px），和我们的圆角对不上——卡片四角看起来就像被切了一刀，
+   * 边缘还会多一条浅色发丝线。
+   */
+  appearance: none;
+  -webkit-appearance: none;
 }
 
 img {

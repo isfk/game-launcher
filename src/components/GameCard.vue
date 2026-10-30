@@ -112,7 +112,14 @@ onUpdated(() => {
     @dblclick="emit('activate')"
   >
     <div class="art">
-      <img v-if="cover && !coverBroken" :src="cover" alt="" @error="coverBroken = true" />
+      <img
+        v-if="cover && !coverBroken"
+        :src="cover"
+        alt=""
+        loading="lazy"
+        decoding="async"
+        @error="coverBroken = true"
+      />
       <template v-if="!cover || coverBroken">
         <div class="art-fill" />
         <span class="art-glyph">{{ game.title.slice(0, 1) }}</span>
@@ -147,10 +154,12 @@ onUpdated(() => {
   width: var(--card-w, 22vh);
   aspect-ratio: 2 / 3;
   border-radius: 12px;
-  overflow: hidden;
-  opacity: 0.5;
+  /* 裁切下沉到 .art：卡片本体要能把「选中垫子」画到外面去 */
+  overflow: visible;
+  /* 非选中卡：0.8 —— 基本是实色，只比选中卡稍退一点 */
+  opacity: 0.8;
   transform: scale(0.92);
-  filter: saturate(0.85);
+  filter: saturate(0.92) brightness(0.94);
   transition:
     transform 0.34s var(--ease-spring),
     opacity 0.3s var(--ease-out),
@@ -162,18 +171,51 @@ onUpdated(() => {
 
 .card.focused {
   opacity: 1;
-  transform: scale(1.08) translateY(-0.8vh);
+  /* 放大倍率/上抬距离统一走变量：首页和网格用同一套（格子更密时可以单独调小） */
+  transform: scale(var(--focus-scale, 1.04)) translateY(var(--focus-lift, -0.4vh));
   filter: saturate(1.1);
+  /* 只留深投影和主色光晕（外圈不再往外加压暗） */
   box-shadow:
-    0 0 0 2px rgba(255, 255, 255, 0.95),
     0 26px 64px rgba(0, 0, 0, 0.6),
-    0 0 120px color-mix(in oklab, var(--accent-vivid) 72%, transparent);
+    0 0 var(--card-glow, 96px) color-mix(in oklab, var(--accent-vivid) 72%, transparent);
   z-index: 2;
 }
 
 .art {
   position: absolute;
   inset: 0;
+  border-radius: inherit;
+  overflow: hidden;
+}
+
+/*
+ * 选中卡外面一圈 5px 的白色环 —— 位置/宽度都和之前一样（贴在卡片外面），
+ * 唯一的变化是它不再是「实心白」，而是像那条整体暗带一样**带上渐变透明**：
+ * 上沿亮一点、下沿淡下去，环本身就有一段过渡，不是硬边。
+ * 做法：伪元素比卡片大 5px，用 mask 把中间掏空，只留这 5px 的渐变。
+ */
+.card.focused::after {
+  content: "";
+  position: absolute;
+  inset: -5px;
+  z-index: 3;
+  pointer-events: none;
+  border-radius: 17px; /* 卡片 12px + 环 5px */
+  padding: 5px;
+  background: linear-gradient(
+    180deg,
+    rgba(255, 255, 255, 0.62) 0%,
+    rgba(255, 255, 255, 0.28) 46%,
+    rgba(255, 255, 255, 0.06) 100%
+  );
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  mask-composite: exclude;
 }
 
 .art img {
@@ -204,12 +246,23 @@ onUpdated(() => {
 .sheen {
   position: absolute;
   inset: 0;
-  background: linear-gradient(200deg, rgba(255, 255, 255, 0.16) 0%, transparent 42%, rgba(0, 0, 0, 0.45) 100%);
+  /*
+   * 这层光泽是「玻璃感」的来源，但原来左上 16% 白、右下 45% 黑，
+   * 等于给整张图盖了一层灰罩，封面会发白、发闷。
+   * 现在只留很轻的一点反光和下缘压角，图本身的颜色更浓。
+   */
+  background: linear-gradient(200deg, rgba(255, 255, 255, 0.05) 0%, transparent 34%, rgba(0, 0, 0, 0.26) 100%);
 }
 
 .label {
   position: absolute;
   inset: auto 0 0 0;
+  /*
+   * 卡片本体改成 overflow: visible（要往外画焦点环），所以底部这条名称条
+   * 得自己收圆角，否则它的直角会盖住封面下方的圆角。
+   */
+  border-radius: 0 0 12px 12px;
+  overflow: hidden;
   display: flex;
   align-items: flex-start;
   gap: 0.42em;
@@ -220,7 +273,15 @@ onUpdated(() => {
 /* 图标对齐到标题的第一行，不要跟着两行标题垂直居中 */
 .label-icon {
   margin-top: 0.16em;
-  font-size: 0.86rem;
+  font-size: 0.9rem;
+  /*
+   * 白色图标压在亮封面（比如金色、雪地）上会「看不见」，
+   * 所以垫一层半透明深色圆底，任何封面下都读得出来。
+   */
+  padding: 0.1em;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.42);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.35);
 }
 
 /* 右下：名称占满剩余宽度，图标自然被推到行尾 */
@@ -307,7 +368,11 @@ onUpdated(() => {
 
 .badge {
   font-size: 1.05rem;
-  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.55));
+  /* 同上：贴角时也垫一层深色圆底，白图标才不会和封面糊在一起 */
+  padding: 0.14em;
+  border-radius: 50%;
+  background: rgba(0, 0, 0, 0.42);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.5);
 }
 
 /* 行内的收藏星标：跟着 flex 走，不再自己绝对定位 */
