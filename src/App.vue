@@ -735,7 +735,14 @@ onUnmounted(() => {
     <Backdrop :game="lib.selected" />
 
     <div v-show="!gridOpen" class="home" :class="{ expanded: detailOpen || settingsOpen }">
-    <TopBar :breakdown="lib.providerCounts" :active="lib.platformFilter" @filter="lib.setPlatformFilter" />
+    <TopBar
+      :breakdown="lib.providerCounts"
+      :active="lib.platformFilter"
+      :name="lib.profileName"
+      :avatar="lib.profileAvatar"
+      @filter="lib.setPlatformFilter"
+      @profile="openSettings"
+    />
 
     <section class="meta" :style="{ '--accent': accentOf(lib.selected) }">
       <p v-if="lib.loading" class="status">正在扫描游戏库…</p>

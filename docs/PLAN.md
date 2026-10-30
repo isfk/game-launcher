@@ -533,7 +533,7 @@ WeGame 的 `tencent://` 协议需要它内部的游戏 id，没有稳定来源�
 现在按组排开：
 
 ```
-▣ STEAM 2 │ ▣ EPIC 2 │ ◔ WEGAME 2      Ⓜ Master   10:04
+▣ STEAM 2 │ ▣ EPIC 2 │ ◔ WEGAME 2      Ⓜ shen   10:04
 ```
 
 - **组间发丝线**（1px、0.9rem 高、只在中间画），组内不再用分隔符
@@ -545,6 +545,32 @@ WeGame 的 `tencent://` 协议需要它内部的游戏 id，没有稳定来源�
 
 数字来源是前端 `providerCounts`（按 `Game.provider` 聚合，顺序固定
 steam → epic → wegame → manual），后端不用改。
+
+## 4.40.2 账号资料：昵称 + 头像（不再写死 Master）
+
+右上角那个 `Master` 是写死在前端的假名字，跟玩家没关系。现在它真的是「你」：
+
+| 部分 | 实现 |
+|---|---|
+| **昵称** | `Settings.Name`（`json:"name,omitempty"`）。空串 = 没自定义，后端回落成系统账户名（`USER` / `USERNAME` / `LOGNAME`，取不到才用「玩家」）。`config.NormalizeName` 去首尾空白、换行/制表压成空格、超 24 字截断 |
+| **头像** | `Settings.Avatar` 存**本机绝对路径**，但页面拿到的是 `art://` URL（`Profile.Avatar`）。没头像时是空串，界面画「昵称首字 + 渐变」兜底 |
+| **接口** | `Profile()` / `SetNickname(name)` / `PickAvatar()` / `ClearAvatar()`，都返回同一个 `Profile{name, avatar}` |
+| **入口** | 点右上角那个圆头像 → 打开设置面板最上面的「昵称 / 头像」两行 |
+
+**为什么不记住原图路径**：原图通常躺在下载目录，过两天被清理掉头像就白了。
+`config.Store.SaveAvatar` 把图片复制进 `<配置目录>/avatars/<内容散列>.<ext>`：
+
+- 按**内容**嗅探类型（`http.DetectContentType`），只收 PNG / JPEG / WebP / GIF，
+  上限 8 MB —— 把 `.txt` 改名成 `.png` 糊弄不过去
+- 文件名用 `sha256` 前 16 位：同一张图反复选不会多出副本；换了图就是新文件，
+  `art://` 的 URL 跟着变，浏览器缓存不会拿出旧头像（`art://` 的 id 是按路径算的）
+- 旧文件故意不删：「清除头像」只把 `Settings.Avatar` 置空，复制件留在原地；
+  换回来时 URL 不变，而乱删文件的风险比几十 KB 大得多
+
+**交互细节**：昵称是「就地进输入框」，不另弹一层——`Enter` 保存、`Esc` 取消，
+失焦也算保存（`Esc` 先改状态再 `blur`，避免取消又被当成保存）。
+输入框上 `@keydown.stop`，否则 `App.vue` 的全局键位会把打字当成快捷键。
+头像坏图（文件被手删了、格式怪）在 `TopBar` 里 `@error` 退回首字兜底。
 
 ## 4.39.2 大库（几百部游戏）怎么办
 

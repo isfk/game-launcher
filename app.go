@@ -50,6 +50,16 @@ type GameState struct {
 	Running bool   `json:"running"`
 }
 
+// Profile 是「我是谁」：右上角的昵称与头像。
+//
+// 为什么不直接把 settings.avatar 给页面：那是本机路径，WebView 加载不了；
+// 这里返回的 Avatar 已经是 art:// URL，没有头像时是空串
+// （界面自己画昵称首字 + 渐变）——两种光景一线之隔，不会出现碎图。
+type Profile struct {
+	Name   string `json:"name"`
+	Avatar string `json:"avatar"`
+}
+
 // GameRunning 游戏开始或退出时广播给页面。
 var GameRunning = mygo.NewEvent[GameState]("gameRunning")
 
@@ -222,6 +232,107 @@ func (l *Launcher) SetSort(by, dir string) (config.Settings, error) {
 	next.SortBy = config.NormalizeSortBy(by)
 	next.SortDir = config.NormalizeSortDir(dir)
 	return l.saveSettings(next)
+}
+
+// defaultProfileName 是没设置昵称时用的名字：系统账户名。
+//
+// 与其写死一个「Master」「Player」这种假名字，不如把机器本来就认识的那个人
+// 写在右上角——看着是自己的启动器，而不是别人的。
+func defaultProfileName() string {
+	for _, key := range []string{"USER", "USERNAME", "LOGNAME"} {
+		if name := strings.TrimSpace(os.Getenv(key)); name != "" {
+			return config.NormalizeName(name)
+		}
+	}
+	return "玩家"
+}
+
+// Profile 返回当前昵称与头像（头像已是页面能加载的 URL）。
+func (l *Launcher) Profile() Profile {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.profileNow()
+}
+
+// profileNow 把设置拼成给页面用的 Profile。调用前必须持有 l.mu。
+func (l *Launcher) profileNow() Profile {
+	settings := l.settingsNow()
+
+	p := Profile{Name: config.NormalizeName(settings.Name)}
+	if p.Name == "" {
+		p.Name = defaultProfileName()
+	}
+
+	// 头像文件被人手删了就退回首字兜底，而不是给页面一个 404 的地址
+	if settings.Avatar != "" {
+		if st, err := os.Stat(settings.Avatar); err == nil && !st.IsDir() {
+			p.Avatar = artStore.URL(settings.Avatar)
+		}
+	}
+	return p
+}
+
+// SetNickname 记住昵称。空串表示「不自定义」，回到系统账户名。
+func (l *Launcher) SetNickname(name string) (Profile, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	next := l.settingsNow()
+	next.Name = config.NormalizeName(name)
+	if _, err := l.saveSettings(next); err != nil {
+		return l.profileNow(), err
+	}
+	return l.profileNow(), nil
+}
+
+// PickAvatar 弹系统文件选择框，把选中的图片复制进配置目录当头像。
+//
+// 取消选择不算错误：返回当前的资料，界面什么都不用做。
+func (l *Launcher) PickAvatar(ctx context.Context) (Profile, error) {
+	l.mu.Lock()
+	parent, store := l.win, l.cfg
+	l.mu.Unlock()
+
+	picked, err := pickImage(parent)
+	if err != nil {
+		return l.Profile(), err
+	}
+	if picked == "" {
+		return l.Profile(), nil // 用户按了取消
+	}
+	if store == nil {
+		return l.Profile(), fmt.Errorf("没有配置目录，头像存不下来")
+	}
+
+	saved, err := store.SaveAvatar(picked)
+	if err != nil {
+		return l.Profile(), err
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	next := l.settingsNow()
+	next.Avatar = saved
+	if _, err := l.saveSettings(next); err != nil {
+		return l.profileNow(), err
+	}
+	return l.profileNow(), nil
+}
+
+// ClearAvatar 把头像恢复成「昵称首字 + 渐变」的样子。
+//
+// 已经复制进配置目录的那份文件不删：换个头像试一下、再换回来，
+// 文件还在原地（内容散列命名，URL 不变）；而乱删文件的风险比几十 KB 大得多。
+func (l *Launcher) ClearAvatar() (Profile, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	next := l.settingsNow()
+	next.Avatar = ""
+	if _, err := l.saveSettings(next); err != nil {
+		return l.profileNow(), err
+	}
+	return l.profileNow(), nil
 }
 
 // OpenFolder 在系统文件管理器里打开一部游戏的安装目录。
@@ -475,6 +586,25 @@ var pickExecutable = func(parent *mygo.Window) (string, error) {
 		Title:   "选择要添加的游戏",
 		Message: "支持 .app（macOS）和 .exe / .bat / .cmd / .lnk（Windows）",
 		Filters: manualFilters(),
+	}
+	paths, err := mygo.Dialog.Open(opts)
+	if err != nil {
+		return "", fmt.Errorf("打开文件选择框失败: %w", err)
+	}
+	if len(paths) == 0 {
+		return "", nil
+	}
+	return paths[0], nil
+}
+
+// pickImage 弹系统文件选择框挑一张头像，返回选中的路径（取消时返回空串）。
+// 同样抽成变量，测试里能直接替掉。
+var pickImage = func(parent *mygo.Window) (string, error) {
+	opts := mygo.OpenDialogOptions{
+		Parent:  parent,
+		Title:   "选择头像图片",
+		Message: "PNG / JPEG / WebP / GIF，正方形效果最好",
+		Filters: []mygo.FileFilter{{Name: "图片", Extensions: []string{"png", "jpg", "jpeg", "webp", "gif"}}},
 	}
 	paths, err := mygo.Dialog.Open(opts)
 	if err != nil {

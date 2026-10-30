@@ -4,6 +4,8 @@ import { isMyGo } from "mygo-runtime";
 import { Launcher, type ArtworkUpdate, type Game } from "../mygo";
 
 const FAVORITES_KEY = "launcher.favorites";
+// 浏览器里没有后端（dev server 调样式时），昵称就存在本地。
+const NAME_KEY = "launcher.name";
 
 /** useLibrary 是界面唯一的数据源：游戏列表、当前焦点、扫描状态。 */
 export const useLibrary = defineStore("library", () => {
@@ -25,6 +27,14 @@ export const useLibrary = defineStore("library", () => {
   const soundEnabled = ref(true);
   // 卡片上平台图标的位置：tl / tr / bl（默认，和游戏名同一行）/ br
   const iconPos = ref<string>("bl");
+  // 右上角「我是谁」：昵称与头像。头像为空串时界面用昵称首字 + 渐变兜底。
+  // 昵称的真相在后端（没自定义就是系统账户名），这里只是镜像。
+  const profileName = ref<string>("");
+  const profileAvatar = ref<string>("");
+  const profileInitial = computed(() => {
+    const first = [...profileName.value.trim()][0] ?? "?";
+    return first.toUpperCase();
+  });
   // 已经问过后端要过主色的 key（含没取到的情况），避免反复请求
   const accentAsked = new Set<string>();
 
@@ -43,24 +53,56 @@ export const useLibrary = defineStore("library", () => {
   const hiddenGames = computed(() => allGames.value.filter((g) => hidden.value.has(g.key)));
 
   /**
-   * loadSettings 从后端读一次用户设置（音效开关、收藏）。
+   * loadSettings 从后端读一次用户设置（音效开关、收藏、昵称头像）。
    *
-   * 浏览器里没有后端，就沿用 localStorage 里的收藏；真机这边后端是唯一真相，
+   * 浏览器里没有后端，昵称就沿用 localStorage；真机这边后端是唯一真相，
    * 免得出现「界面记得、后端不知道」的两份数据。
    */
   async function loadSettings() {
-    if (!isMyGo()) return;
+    if (!isMyGo()) {
+      // 调样式时的兜底：host 浏览器里没有账户名，就叫「玩家」
+      profileName.value = localStorage.getItem(NAME_KEY) ?? "玩家";
+      return;
+    }
     try {
-      const s = await Launcher.settings();
+      const [s, p] = await Promise.all([Launcher.settings(), Launcher.profile()]);
       soundEnabled.value = s.soundEnabled;
       iconPos.value = s.iconPos || "bl";
       hidden.value = new Set(s.hidden ?? []);
       sortBy.value = s.sortBy || "recent";
       sortDir.value = s.sortDir || "desc";
       favorites.value = new Set(s.favorites ?? []);
+      applyProfile(p);
     } catch {
       // 读不到设置就按默认值走，不影响使用
     }
+  }
+
+  function applyProfile(p: { name: string; avatar: string }) {
+    profileName.value = p.name;
+    profileAvatar.value = p.avatar;
+  }
+
+  /** setNickname 记住昵称，空串表示回到系统账户名。 */
+  async function setNickname(name: string) {
+    if (!isMyGo()) {
+      profileName.value = name.trim();
+      localStorage.setItem(NAME_KEY, profileName.value);
+      return;
+    }
+    applyProfile(await Launcher.setNickname(name));
+  }
+
+  /** pickAvatar 弹系统文件选择框换头像（取消就什么都不变）。 */
+  async function pickAvatar() {
+    if (!isMyGo()) return;
+    applyProfile(await Launcher.pickAvatar());
+  }
+
+  /** clearAvatar 回到「昵称首字 + 渐变」的兜底样子。 */
+  async function clearAvatar() {
+    if (!isMyGo()) return;
+    applyProfile(await Launcher.clearAvatar());
   }
 
   /** 四个位置按顺序轮转，设置面板里一个按钮就能切。 */
@@ -389,6 +431,9 @@ export const useLibrary = defineStore("library", () => {
     favorites,
     soundEnabled,
     iconPos,
+    profileName,
+    profileAvatar,
+    profileInitial,
     providerCounts,
     hidden,
     hiddenCount,
@@ -403,6 +448,9 @@ export const useLibrary = defineStore("library", () => {
     cyclePlatformFilter,
     setPlatformFilter,
     cycleIconPos,
+    setNickname,
+    pickAvatar,
+    clearAvatar,
     selected,
     isDemo,
     load,

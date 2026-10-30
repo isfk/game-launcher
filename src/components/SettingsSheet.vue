@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from "vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
 import { Launcher } from "../mygo";
 import { providerLabel } from "../lib/format";
 import { sfx } from "../lib/sfx";
@@ -60,6 +60,10 @@ const shortcuts = [
 ];
 
 const nav = usePanelNav(() => [
+  // 资料：昵称和头像。放在最上面 —— 右上角那个圆点就是点这里进去的。
+  { key: "name", activate: () => void startNameEdit() },
+  { key: "avatar", activate: () => void pickAvatar() },
+  ...(lib.profileAvatar ? [{ key: "avatar-clear", activate: () => void clearAvatar() }] : []),
   { key: "fullscreen", activate: () => emit("toggleFullscreen") },
   { key: "add", activate: () => void addGame() },
   { key: "rescan", activate: () => emit("rescan") },
@@ -119,6 +123,71 @@ function focusTo(key: string) {
 
 const adding = ref(false);
 
+// ---- 资料：昵称与头像 ----
+
+// 昵称改成「就地进输入框」：不在弹窗里再弹一个输入框，
+// 设置面板本身的遮罩已经够多一层了。
+const editingName = ref(false);
+const draftName = ref("");
+const nameEl = ref<HTMLInputElement | null>(null);
+
+async function startNameEdit() {
+  sfx.move();
+  draftName.value = lib.profileName;
+  editingName.value = true;
+  await nextTick();
+  nameEl.value?.focus();
+  nameEl.value?.select();
+}
+
+/** 关掉输入态（不落盘）。先改状态再失焦，避免 blur 把取消又当成保存。 */
+function cancelNameEdit() {
+  editingName.value = false;
+}
+
+/** 失焦 / Enter 都算保存；内容没变就不发请求。 */
+function commitNameEdit() {
+  if (!editingName.value) return;
+  const next = draftName.value.trim();
+  editingName.value = false;
+  if (next === lib.profileName) return;
+  void lib
+    .setNickname(next)
+    .then(() => sfx.confirm())
+    .catch((e) => emit("failed", e instanceof Error ? e.message : String(e)));
+}
+
+function onNameKey(e: KeyboardEvent) {
+  if (e.key === "Enter") {
+    e.preventDefault();
+    commitNameEdit();
+  } else if (e.key === "Escape") {
+    e.preventDefault();
+    cancelNameEdit();
+    nameEl.value?.blur();
+  }
+}
+
+/** pickAvatar 走系统文件选择框；取消就什么都不变，失败要把原因说出来。 */
+async function pickAvatar() {
+  try {
+    await lib.pickAvatar();
+    sfx.confirm();
+  } catch (e) {
+    emit("failed", e instanceof Error ? e.message : String(e));
+  }
+}
+
+async function clearAvatar() {
+  try {
+    await lib.clearAvatar();
+    sfx.back();
+  } catch (e) {
+    emit("failed", e instanceof Error ? e.message : String(e));
+  }
+}
+
+
 /** addGame 走系统文件选择框；加完让外层的库刷新一次（后端已经重扫）。 */
 async function addGame() {
   if (adding.value) return;
@@ -156,6 +225,72 @@ function toggleSound() {
 
     <div class="body">
       <ul class="rows">
+        <!-- 资料：右上角那个头像点进来就是这里 -->
+        <li class="profile">
+          <div class="profile-main">
+            <span class="avatar-sm">
+              <img v-if="lib.profileAvatar" :src="lib.profileAvatar" alt="" />
+              <template v-else>{{ lib.profileInitial }}</template>
+            </span>
+            <div>
+              <span class="label">昵称</span>
+              <span class="desc">
+                {{ editingName ? "输入完按 Enter 保存，Esc 取消" : lib.profileName }}
+              </span>
+            </div>
+          </div>
+          <input
+            v-if="editingName"
+            ref="nameEl"
+            v-model="draftName"
+            class="name-input"
+            type="text"
+            :maxlength="24"
+            placeholder="留空则用系统账户名"
+            spellcheck="false"
+            autocomplete="off"
+            @keydown.stop="onNameKey"
+            @blur="commitNameEdit"
+          />
+          <button
+            v-else
+            class="btn"
+            :class="{ focused: nav.isFocused('name') }"
+            @mouseenter="focusTo('name')"
+            @click="startNameEdit"
+          >
+            修改
+          </button>
+        </li>
+
+        <li>
+          <div>
+            <span class="label">头像</span>
+            <span class="desc">
+              {{ lib.profileAvatar ? "已使用自定义图片" : "默认用昵称首字 + 渐变" }}
+            </span>
+          </div>
+          <div class="btns">
+            <button
+              class="btn"
+              :class="{ focused: nav.isFocused('avatar') }"
+              @mouseenter="focusTo('avatar')"
+              @click="pickAvatar"
+            >
+              选择图片
+            </button>
+            <button
+              v-if="lib.profileAvatar"
+              class="btn"
+              :class="{ focused: nav.isFocused('avatar-clear') }"
+              @mouseenter="focusTo('avatar-clear')"
+              @click="clearAvatar"
+            >
+              清除
+            </button>
+          </div>
+        </li>
+
         <li>
           <div>
             <span class="label">全屏</span>
@@ -457,6 +592,58 @@ kbd {
   display: block;
   font-size: 0.9rem;
   font-weight: 550;
+}
+
+/* ---- 资料 ---- */
+.profile-main {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.avatar-sm {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 2.1rem;
+  height: 2.1rem;
+  border-radius: 50%;
+  overflow: hidden;
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #fff;
+  background: linear-gradient(140deg, #4a6cd4, #8a4ad4);
+  box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.14);
+}
+
+.avatar-sm img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.name-input {
+  flex: 0 0 auto;
+  width: 9rem;
+  padding: 0.4em 0.7em;
+  border-radius: 10px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(0, 0, 0, 0.35);
+  color: var(--fg);
+  font-size: 0.85rem;
+  font-family: inherit;
+  outline: none;
+}
+
+.name-input:focus {
+  border-color: color-mix(in oklab, var(--accent) 72%, transparent);
+}
+
+.btns {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
 }
 
 .desc {

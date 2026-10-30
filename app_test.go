@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"os"
 	"path/filepath"
 	"strings"
@@ -245,6 +246,149 @@ func TestSetFavoriteRequiresKey(t *testing.T) {
 	l := &Launcher{}
 	if _, err := l.SetFavorite("", true); err == nil {
 		t.Error("空 key 应该报错")
+	}
+}
+
+// TestProfileDefaultsToSystemUser 覆盖「第一次启动」：没有昵称就用系统账户名，
+// 不该是写死的 Master。
+func TestProfileDefaultsToSystemUser(t *testing.T) {
+	t.Setenv("USER", "neo")
+	t.Setenv("USERNAME", "neo")
+	t.Setenv("LOGNAME", "neo")
+
+	l := &Launcher{}
+	l.setConfig(config.NewStore(t.TempDir()))
+
+	p := l.Profile()
+	if p.Name != "neo" {
+		t.Errorf("默认昵称 = %q，期望系统账户名 neo", p.Name)
+	}
+	if p.Avatar != "" {
+		t.Errorf("没设头像时应该是空串，实际 %q", p.Avatar)
+	}
+}
+
+// TestSetNicknameNormalizesAndPersists 昵称要跨重启保留，并且收敛掉多余的空白。
+func TestSetNicknameNormalizesAndPersists(t *testing.T) {
+	t.Setenv("USER", "neo")
+	dir := t.TempDir()
+
+	first := &Launcher{}
+	first.setConfig(config.NewStore(dir))
+	p, err := first.SetNickname("  阿伞\n ") // 用户可能从别处粘进来带空行
+	if err != nil {
+		t.Fatalf("SetNickname: %v", err)
+	}
+	if p.Name != "阿伞" {
+		t.Errorf("昵称 = %q，期望 阿伞", p.Name)
+	}
+
+	// 重启一次：还是这个昵称
+	second := &Launcher{}
+	second.setConfig(config.NewStore(dir))
+	if got := second.Profile().Name; got != "阿伞" {
+		t.Errorf("重启后昵称 = %q", got)
+	}
+
+	// 清空 = 回到系统账户名
+	if got, err := second.SetNickname("   "); err != nil {
+		t.Fatalf("SetNickname: %v", err)
+	} else if got.Name != "neo" {
+		t.Errorf("清空昵称后 = %q，期望回落到 neo", got.Name)
+	}
+}
+
+// swapImagePicker 换掉头像的文件选择框，返回还原函数。
+func swapImagePicker(fn func(*mygo.Window) (string, error)) func() {
+	old := pickImage
+	pickImage = fn
+	return func() { pickImage = old }
+}
+
+// fakePNG 造一张真的 1x1 PNG（内容是图片，不是改名文本）。
+func fakePNG(t *testing.T) string {
+	t.Helper()
+	raw, err := base64.StdEncoding.DecodeString(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "avatar.png")
+	if err := os.WriteFile(path, raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// TestPickAvatarCopiesIntoConfig 覆盖头像：选中的图复制进配置目录，页面拿到 URL。
+func TestPickAvatarCopiesIntoConfig(t *testing.T) {
+	dir := t.TempDir()
+	image := fakePNG(t)
+
+	restore := swapImagePicker(func(*mygo.Window) (string, error) { return image, nil })
+	defer restore()
+
+	l := &Launcher{}
+	l.setConfig(config.NewStore(dir))
+	p, err := l.PickAvatar(context.Background())
+	if err != nil {
+		t.Fatalf("PickAvatar: %v", err)
+	}
+	if p.Avatar == "" {
+		t.Fatal("选完头像后应该有一个可加载的 URL")
+	}
+	if !strings.HasPrefix(p.Avatar, "art://localhost/") && !strings.HasPrefix(p.Avatar, "http://art.localhost/") {
+		t.Errorf("头像 URL 不像 art:// 地址: %q", p.Avatar)
+	}
+
+	// 落盘的是复制件，不是原图路径
+	stored := l.Settings().Avatar
+	if !strings.HasPrefix(stored, dir) {
+		t.Errorf("头像副本应该落在配置目录里，实际 %q", stored)
+	}
+	if stored == image {
+		t.Error("不该直接记住原图路径（原图挪走头像就白了）")
+	}
+
+	// 重启后还是同一个头像（同一个文件 → 同一个 URL）
+	again := &Launcher{}
+	again.setConfig(config.NewStore(dir))
+	if got := again.Profile().Avatar; got != p.Avatar {
+		t.Errorf("重启后头像 = %q，期望 %q", got, p.Avatar)
+	}
+
+	// 取消选择不该弄丢已有的头像
+	restore()
+	swapImagePicker(func(*mygo.Window) (string, error) { return "", nil })
+	if got, err := again.PickAvatar(context.Background()); err != nil {
+		t.Fatalf("取消不该报错: %v", err)
+	} else if got.Avatar != p.Avatar {
+		t.Errorf("取消后头像变了: %q", got.Avatar)
+	}
+}
+
+// TestClearAvatarFallsBackToInitial 清掉头像 = 回到「昵称首字 + 渐变」。
+func TestClearAvatarFallsBackToInitial(t *testing.T) {
+	dir := t.TempDir()
+	restore := swapImagePicker(func(*mygo.Window) (string, error) { return fakePNG(t), nil })
+	defer restore()
+
+	l := &Launcher{}
+	l.setConfig(config.NewStore(dir))
+	if _, err := l.PickAvatar(context.Background()); err != nil {
+		t.Fatalf("PickAvatar: %v", err)
+	}
+
+	p, err := l.ClearAvatar()
+	if err != nil {
+		t.Fatalf("ClearAvatar: %v", err)
+	}
+	if p.Avatar != "" {
+		t.Errorf("清掉后不该还有头像，实际 %q", p.Avatar)
+	}
+	if l.Settings().Avatar != "" {
+		t.Error("清掉后设置里该是空串")
 	}
 }
 

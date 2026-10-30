@@ -62,6 +62,18 @@ export interface ManualGame {
   added?: string;
 }
 
+/**
+ * Profile 是「我是谁」：右上角的昵称与头像。
+ *
+ * 为什么不直接把 settings.avatar 给页面：那是本机路径，WebView 加载不了；
+ * 这里返回的 Avatar 已经是 art:// URL，没有头像时是空串
+ * （界面自己画昵称首字 + 渐变）——两种光景一线之隔，不会出现碎图。
+ */
+export interface Profile {
+  name: string;
+  avatar: string;
+}
+
 export interface Settings {
   soundEnabled: boolean;
   favorites?: string[];
@@ -70,6 +82,8 @@ export interface Settings {
   hidden?: string[];
   sortBy?: string;
   sortDir?: string;
+  name?: string;
+  avatar?: string;
 }
 
 export interface State {
@@ -102,6 +116,15 @@ export const Launcher = {
   addManualGame(): Promise<LibraryResult> {
     return call("Launcher.AddManualGame");
   },
+  /**
+   * ClearAvatar 把头像恢复成「昵称首字 + 渐变」的样子。
+   *
+   * 已经复制进配置目录的那份文件不删：换个头像试一下、再换回来，
+   * 文件还在原地（内容散列命名，URL 不变）；而乱删文件的风险比几十 KB 大得多。
+   */
+  clearAvatar(): Promise<Profile> {
+    return call("Launcher.ClearAvatar");
+  },
   /** IsFullScreen 报告当前是不是全屏。 */
   isFullScreen(): Promise<boolean> {
     return call("Launcher.IsFullScreen");
@@ -131,6 +154,18 @@ export const Launcher = {
    */
   pads(frames: Channel<State[]>): Promise<void> {
     return call("Launcher.Pads", frames);
+  },
+  /**
+   * PickAvatar 弹系统文件选择框，把选中的图片复制进配置目录当头像。
+   *
+   * 取消选择不算错误：返回当前的资料，界面什么都不用做。
+   */
+  pickAvatar(): Promise<Profile> {
+    return call("Launcher.PickAvatar");
+  },
+  /** Profile 返回当前昵称与头像（头像已是页面能加载的 URL）。 */
+  profile(): Promise<Profile> {
+    return call("Launcher.Profile");
   },
   /** Quit 退出启动器。 */
   quit(): Promise<void> {
@@ -165,6 +200,10 @@ export const Launcher = {
   /** SetIconPos 改卡片上平台图标的位置（tl / tr / bl / br）。 */
   setIconPos(pos: string): Promise<Settings> {
     return call("Launcher.SetIconPos", pos);
+  },
+  /** SetNickname 记住昵称。空串表示「不自定义」，回到系统账户名。 */
+  setNickname(name: string): Promise<Profile> {
+    return call("Launcher.SetNickname", name);
   },
   /** SetSort 改首页的排序方式与方向，非法值会被收敛到合法取值。 */
   setSort(by: string, dir: string): Promise<Settings> {

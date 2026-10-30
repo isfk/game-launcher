@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed, ref, watch } from "vue";
 import { useClock } from "../composables/useClock";
 import ProviderIcon from "./ProviderIcon.vue";
 
@@ -14,11 +15,28 @@ const props = defineProps<{
   breakdown: Array<{ id: string; count: number }>;
   /** 当前生效的平台筛选，空串 = 全部 */
   active?: string;
+  /** 昵称（后端没自定义时是系统账户名） */
+  name: string;
+  /** 头像的 art:// 地址，空串表示用昵称首字兜底 */
+  avatar?: string;
 }>();
 
-const emit = defineEmits<{ filter: [id: string] }>();
+const emit = defineEmits<{ filter: [id: string]; profile: [] }>();
 
 const clock = useClock();
+
+/** 头像首字：昵称的第一个字（中文就是第一个字，英文大写）。 */
+const initial = computed(() => ([...props.name.trim()][0] ?? "?").toUpperCase());
+
+// 图片坏了就退回首字：自定义头像删了、格式奇怪，都不该在右上角留个碎图
+const avatarBroken = ref(false);
+watch(
+  () => props.avatar,
+  () => {
+    avatarBroken.value = false;
+  },
+);
+const avatarUrl = computed(() => (avatarBroken.value ? "" : (props.avatar ?? "")));
 
 const names: Record<string, string> = {
   steam: "Steam",
@@ -55,10 +73,11 @@ function labelOf(id: string) {
       </span>
     </div>
 
-    <div class="who">
-      <span class="avatar">M</span>
-      <span class="name">Master</span>
-    </div>
+    <button class="who" type="button" :title="`${props.name} · 点击改昵称和头像`" @click="emit('profile')">
+      <img v-if="avatarUrl" class="avatar-img" :src="avatarUrl" alt="" @error="avatarBroken = true" />
+      <span v-else class="avatar">{{ initial }}</span>
+      <span class="name">{{ props.name }}</span>
+    </button>
 
     <time class="clock">{{ clock }}</time>
   </header>
@@ -172,9 +191,22 @@ function labelOf(id: string) {
   display: inline-flex;
   align-items: center;
   gap: 0.55rem;
+  padding: 0.2rem 0.6rem 0.2rem 0.25rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition: background 0.2s var(--ease-out);
 }
 
-.avatar {
+.who:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.avatar,
+.avatar-img {
   display: grid;
   place-items: center;
   width: 1.7rem;
@@ -189,7 +221,19 @@ function labelOf(id: string) {
     0 6px 18px rgba(0, 0, 0, 0.35);
 }
 
+/* 自定义头像：裁成圆，和首字兜底一样大，换过去不会跳一下 */
+.avatar-img {
+  object-fit: cover;
+  background: rgba(255, 255, 255, 0.08);
+}
+
 .name {
+  /* 昵称最长 24 字：不给个上限会一路挤到时钟跟前，
+     长名字宁可省略号，也不要让时钟跟着跳位置 */
+  max-width: 12rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
   font-size: 0.78rem;
   font-weight: 600;
   letter-spacing: 0.02em;

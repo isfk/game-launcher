@@ -6,12 +6,17 @@
 package config
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"io/fs"
+	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 )
@@ -35,6 +40,33 @@ type Settings struct {
 	// 收藏永远置顶，这两个只决定「同类之内」的顺序。
 	SortBy  string `json:"sortBy,omitempty"`
 	SortDir string `json:"sortDir,omitempty"`
+	// Name 是右上角的昵称。空串不是「叫空名字」，而是「用系统账户名」——
+	// 第一次启动的人不该先被安上一个假名字。
+	Name string `json:"name,omitempty"`
+	// Avatar 是头像图片在本机的绝对路径，空串表示用昵称首字兜底。
+	// 真正存的是复制进配置目录的那一份（见 SaveAvatar），所以原图挪走也不影响。
+	Avatar string `json:"avatar,omitempty"`
+}
+
+// MaxNameRunes 是昵称的字数上限。够长（中文 24 字能写一句话），
+// 又不至于把右上角那一行撑爆。
+const MaxNameRunes = 24
+
+// NormalizeName 收敛昵称：去首尾空白、把换行/制表压成一个空格、超长截断。
+//
+// 为什么要在后端做：昵称会被写进 settings.json，也可能被人手改；
+// 界面上一个回车就能塞进换行，那条记录会变得没法显示。收敛一次，
+// 界面就不用到处防御。返回空串表示「没设置」，由调用方决定兜底成什么。
+func NormalizeName(raw string) string {
+	// 换行 / 制表先变空格，再按空白切分重新拼，顺带削掉连续空格
+	fields := strings.Fields(raw)
+	name := strings.Join(fields, " ")
+
+	runes := []rune(name)
+	if len(runes) <= MaxNameRunes {
+		return name
+	}
+	return strings.TrimSpace(string(runes[:MaxNameRunes]))
 }
 
 // ManualGame 是一条手动添加的记录：只要路径和显示名，没有平台信息。
@@ -125,6 +157,67 @@ func NewStore(dir string) *Store {
 // Path 返回设置文件的完整路径（日志和「打开配置目录」之类的功能会用到）。
 func (s *Store) Path() string {
 	return filepath.Join(s.dir, fileName)
+}
+
+// maxAvatarBytes 是头像文件的上限。头像最后只画成一个小圆圈，
+// 几 MB 已经是很奢侈的原图了；再大就不是「选错了」而是「想写爆磁盘」。
+const maxAvatarBytes = 8 << 20
+
+// avatarTypes 是允许的头像类型（按内容嗅探，不看扩展名）。
+// 这四种是 WebView 在各平台上都稳能画的。
+var avatarTypes = map[string]string{
+	"image/png":  ".png",
+	"image/jpeg": ".jpg",
+	"image/gif":  ".gif",
+	"image/webp": ".webp",
+}
+
+// SaveAvatar 把用户挑的图片复制到 <dir>/avatars/ 下，返回落盘的绝对路径。
+//
+// 两个细节：
+//  1. 存副本而不是记住原路径——原图在下载目录里，过两天被清理掉，头像就白了。
+//  2. 文件名用内容散列——同一张图反复选不会多出副本；换了图就是新文件，
+//     art:// 的 URL 跟着变，浏览器缓存不会拿出旧头像（头像 URL 是按路径算的）。
+//     旧文件故意不删：几十 KB 的东西，删错比留着难受。
+func (s *Store) SaveAvatar(src string) (string, error) {
+	f, err := os.Open(src)
+	if err != nil {
+		return "", fmt.Errorf("config: 读头像失败: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	// 多读一个字节：读满 maxAvatarBytes+1 就说明超标了
+	raw, err := io.ReadAll(io.LimitReader(f, maxAvatarBytes+1))
+	if err != nil {
+		return "", fmt.Errorf("config: 读头像失败: %w", err)
+	}
+	if len(raw) == 0 {
+		return "", errors.New("config: 这个文件是空的，换一张图试试")
+	}
+	if len(raw) > maxAvatarBytes {
+		return "", fmt.Errorf("config: 头像太大了（上限 %d MB）", maxAvatarBytes>>20)
+	}
+
+	// 按内容判类型：把 .txt 改名成 .png 也糊弄不过去
+	ext, ok := avatarTypes[http.DetectContentType(raw)]
+	if !ok {
+		return "", errors.New("config: 只支持 PNG / JPEG / WebP / GIF 图片")
+	}
+
+	dir := filepath.Join(s.dir, "avatars")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", fmt.Errorf("config: 创建头像目录失败: %w", err)
+	}
+
+	sum := sha256.Sum256(raw)
+	dst := filepath.Join(dir, hex.EncodeToString(sum[:])[:16]+ext)
+	if st, err := os.Stat(dst); err == nil && !st.IsDir() && st.Size() == int64(len(raw)) {
+		return dst, nil // 同一张图已经存过了
+	}
+	if err := os.WriteFile(dst, raw, 0o644); err != nil {
+		return "", fmt.Errorf("config: 写头像失败: %w", err)
+	}
+	return dst, nil
 }
 
 // Load 读设置。文件不存在算正常情况，直接给默认值。

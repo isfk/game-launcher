@@ -1,9 +1,11 @@
 package config
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -189,6 +191,94 @@ func TestSortDefaultsAndNormalizes(t *testing.T) {
 		if got := NormalizeSortDir(bad); got != SortDesc {
 			t.Errorf("坏值 %q 应该回落到 desc，实际 %q", bad, got)
 		}
+	}
+}
+
+// TestNormalizeName 覆盖昵称收敛：空白、换行、超长都得变成一行能显示的字。
+func TestNormalizeName(t *testing.T) {
+	cases := map[string]string{
+		"  阿伞  ":                "阿伞",
+		"阿伞\n第二行":               "阿伞 第二行",
+		"a\t\tb":                "a b",
+		"":                      "",
+		"   ":                   "",
+		strings.Repeat("喵", 30): strings.Repeat("喵", MaxNameRunes),
+	}
+	for in, want := range cases {
+		if got := NormalizeName(in); got != want {
+			t.Errorf("NormalizeName(%q) = %q，期望 %q", in, got, want)
+		}
+	}
+}
+
+// tinyPNG 是一个 1x1 的真 PNG：用它验证「按内容判类型」那一套。
+func tinyPNG(t *testing.T) []byte {
+	t.Helper()
+	raw, err := base64.StdEncoding.DecodeString(
+		"iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8DwHwAFAAH/q842iQAAAABJRU5ErkJggg==",
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return raw
+}
+
+// TestSaveAvatarCopiesAndDedupes 覆盖头像落盘：复制进配置目录、同一张图不存两份。
+func TestSaveAvatarCopiesAndDedupes(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	src := filepath.Join(t.TempDir(), "me.png")
+	if err := os.WriteFile(src, tinyPNG(t), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	first, err := store.SaveAvatar(src)
+	if err != nil {
+		t.Fatalf("SaveAvatar: %v", err)
+	}
+	if filepath.Dir(first) != filepath.Join(dir, "avatars") {
+		t.Errorf("头像应该存进配置目录，实际 %q", first)
+	}
+	if _, err := os.Stat(first); err != nil {
+		t.Fatalf("头像没写出来: %v", err)
+	}
+
+	second, err := store.SaveAvatar(src)
+	if err != nil {
+		t.Fatalf("SaveAvatar 第二次: %v", err)
+	}
+	if second != first {
+		t.Errorf("同一张图应该落到同一个文件，%q != %q", second, first)
+	}
+
+	// 删掉原图：配置目录里的副本还在（这正是复制而不是记路径的意义）
+	if err := os.Remove(src); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(first); err != nil {
+		t.Errorf("原图删掉后副本应该还在: %v", err)
+	}
+}
+
+// TestSaveAvatarRejectsNonImage 改名成 .png 的文本文件不能混进来。
+func TestSaveAvatarRejectsNonImage(t *testing.T) {
+	src := filepath.Join(t.TempDir(), "fake.png")
+	if err := os.WriteFile(src, []byte("这不是图片"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	store := NewStore(t.TempDir())
+	if _, err := store.SaveAvatar(src); err == nil {
+		t.Error("非图片应该报错")
+	}
+
+	empty := filepath.Join(t.TempDir(), "empty.png")
+	if err := os.WriteFile(empty, nil, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.SaveAvatar(empty); err == nil {
+		t.Error("空文件应该报错")
 	}
 }
 
