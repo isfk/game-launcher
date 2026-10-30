@@ -35,6 +35,7 @@ export interface Game {
   tags?: string[];
   installed: boolean;
   running: boolean;
+  demo?: boolean;
 }
 
 /** GameState 是「某部游戏开始 / 结束运行」的通知。 */

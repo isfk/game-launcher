@@ -341,6 +341,9 @@ func (l *Launcher) OpenFolder(ctx context.Context, key string) error {
 	if !found {
 		return fmt.Errorf("找不到游戏 %q", key)
 	}
+	if game.Demo {
+		return fmt.Errorf("「%s」是演示数据，本机没有安装目录", game.Title)
+	}
 	dir := game.InstallDir
 	if dir == "" {
 		return fmt.Errorf("「%s」没有记录安装目录", game.Title)
@@ -983,6 +986,11 @@ func (l *Launcher) Launch(ctx context.Context, key string) (string, error) {
 	if !found {
 		return "", fmt.Errorf("找不到游戏 %q，先刷新游戏库", key)
 	}
+	// 演示数据有真平台名（好看清版式），但它背后没有任何安装：
+	// 这里拦下来，免得真的去拉一个假的 steam:// 协议。
+	if game.Demo {
+		return "", fmt.Errorf("「%s」是演示数据，扫到真正的游戏库后才能启动", game.Title)
+	}
 
 	// 防双开：手柄的 A 很容易被连按，或者启动器还没退到后台时又按了一下。
 	// 有一部在跑就不再开第二份；刚发出启动请求的那几秒也挡住。
@@ -1059,7 +1067,7 @@ func (l *Launcher) launchGame(ctx context.Context, game library.Game) (string, e
 		l.watchAfterLaunch(game)
 		return game.Title, nil
 	case "demo":
-		return "", fmt.Errorf("「%s」是演示数据，扫到真正的 Steam 库后才能启动", game.Title)
+		return "", fmt.Errorf("「%s」是演示数据，扫到真正的游戏库后才能启动", game.Title)
 	default:
 		return "", fmt.Errorf("暂时不支持启动 %s 的游戏", game.Provider)
 	}
@@ -1119,6 +1127,9 @@ func (l *Launcher) Uninstall(ctx context.Context, key string) (string, error) {
 	if !found {
 		return "", fmt.Errorf("找不到游戏 %q，先刷新游戏库", key)
 	}
+	if game.Demo {
+		return "", fmt.Errorf("「%s」是演示数据，没有可卸载的东西", game.Title)
+	}
 
 	switch game.Provider {
 	case "steam":
@@ -1139,8 +1150,6 @@ func (l *Launcher) Uninstall(ctx context.Context, key string) (string, error) {
 		return "", fmt.Errorf("「%s」由 WeGame 管理，请在 WeGame 客户端里卸载", game.Title)
 	case "manual":
 		return "", fmt.Errorf("「%s」是手动添加的，只能用「移除」（不会删除磁盘上的文件）", game.Title)
-	case "demo":
-		return "", fmt.Errorf("「%s」是演示数据，没有可卸载的东西", game.Title)
 	default:
 		return "", fmt.Errorf("暂时不支持卸载 %s 的游戏", game.Provider)
 	}

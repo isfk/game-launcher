@@ -53,7 +53,7 @@ Mac 与 Windows 双端发布。
 
 | 方法 | 作用 |
 |---|---|
-| `Library(ctx, refresh)` | 扫 Steam 库；扫不到就返回演示数据（`source: "demo"`） |
+| `Library(ctx, refresh)` | 扫各平台的库；一个都没扫到就返回演示数据（`source: "demo"`） |
 | `Launch(ctx, key)` | `steam:<appid>` → `steam://rungameid/<appid>` |
 | `Pads(ctx, channel)` | 60Hz 轮询手柄，只在变化时推一帧 |
 | `PadNames()` | 设置页显示已接手柄 |
@@ -443,6 +443,23 @@ com.epicgames.launcher://apps/<AppName>?action=uninstall&silent=true
 
 **多平台合并**：`rescan` 遍历 `providers()`（steam + epic），任一方扫失败只记日志、
 不影响另一方；`Source` 用 `+` 拼起来（`"steam+epic"`、`"epic"`、`"manual"`、`"demo"`），
+
+## 4.41.1 演示数据也按真库的形排（三平台）
+
+本机一个平台都没扫到时，界面不能是一排空白：`library.DemoGames()` 给 8 部游戏，
+**覆盖 Steam 4 / Epic 2 / WeGame 2**。
+
+- **Provider 写真平台名**（`steam` / `epic` / `wegame`），不是 `"demo"`：顶栏统计、
+  平台图标、点平台筛选全都按真库的样子跑，能看出真实版式
+- 靠新字段 `Game.Demo` 把它标成假的：`Launch` / `Uninstall` / `OpenFolder`
+  进门第一件事就是看这一位，绝不去拉一个假的 `steam://` 协议
+- **封面借 Steam CDN**（`cdn.cloudflare.steamstatic.com/steam/apps/<appid>/library_600x900.jpg`）：
+  挑的是 Steam 上有同一部游戏的作品，图对得上名字；`AppID` 只给 Steam 那批填，
+  其他平台留空（Epic 是 catalog id，混填会让「商店图兜底」查到别的游戏）
+- 顺手带上了体积 / 游玩时长 / 分类标签，详情页的 chips 也是真的
+
+前端 `stores/library.ts` 的 `browserDemo()` 跟着改同样一份数据，
+浏览器里调样式时看到的三平台顶栏和真机一致。
 界面按它显示「Steam + Epic · N 部」。库指纹也是两边拼起来（`librarySignature`）。
 
 ## 4.37 logo 白条（`internal/imgcheck`）

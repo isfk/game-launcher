@@ -41,6 +41,10 @@ type Game struct {
 	Tags      []string `json:"tags,omitempty"`
 	Installed bool     `json:"installed"`
 	Running   bool     `json:"running"`
+	// Demo 为真表示这是「本机一个平台都没扫到」时的演示数据：
+	// Provider 写的是真平台名（顶栏统计才像真库），但这张卡既不能
+	// 启动、也不能卸载——所有真操作入口都要先看这一位。
+	Demo bool `json:"demo,omitempty"`
 }
 
 // Provider 发现本机的游戏，并启动其中一部。

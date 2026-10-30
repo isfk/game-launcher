@@ -481,28 +481,52 @@ function loadFavorites(): Set<string> {
 
 /**
  * browserDemo 是「在浏览器里直接打开 dev server」时用的样例数据。
- * 真实运行时数据全部来自 Go（Steam 扫描），这里只为了让调样式不用开应用。
+ *
+ * 和 Go 那边的 library.DemoGames 保持同一个意思：平台写真的（顶栏统计、
+ * 平台图标、筛选都按真库的样子走），只是 `demo: true`，什么也启动不了。
+ * 封面直接借 Steam CDN（同一部游戏的库图），调样式时不会看到一排渐变色块。
  */
 function browserDemo(): Game[] {
-  const demo: Array<[string, string]> = [
-    ["艾尔登法环", "#c9a227"],
-    ["赛博朋克 2077", "#e0c341"],
-    ["哈迪斯 II", "#c0392b"],
-    ["博德之门 3", "#a5642f"],
-    ["空洞骑士：丝之歌", "#2f8fb0"],
-    ["极乐迪斯科", "#5a6a8a"],
-    ["星露谷物语", "#5aa02f"],
+  const cdn = "https://cdn.cloudflare.steamstatic.com/steam/apps/";
+  const rows: Array<[string, string, string, number, number, number, string[]?]> = [
+    // [artID, 标题, 平台, 几天前, 游玩分钟, 体积 GB]
+    ["1245620", "艾尔登法环", "steam", 1, 4210, 60.2, ["魂系"]],
+    ["1086940", "博德之门 3", "steam", 3, 6120, 122.4, ["RPG"]],
+    ["1091500", "赛博朋克 2077", "steam", 6, 1680, 70.8],
+    ["1145350", "哈迪斯 II", "steam", 14, 540, 8.6],
+    ["1087100", "心灵杀手 2", "epic", 9, 960, 90, ["Epic 独占"]],
+    ["1850570", "死亡搁浅 导演剪辑版", "epic", 30, 3300, 80.1],
+    ["2358720", "黑神话：悟空", "wegame", 21, 2100, 130, ["国产"]],
+    ["838350", "太吾绘卷", "wegame", 45, 1500, 6.2, ["国产"]],
   ];
-  return demo.map(([title, accent], i) => ({
-    key: `demo:${i + 1}`,
+  return rows.map(([artID, title, provider, days, minutes, sizeGB, tags], i) => ({
+    key: `demo:${provider}:${artID}`,
     title,
-    provider: "demo",
-    appId: String(100000 + i),
-    artwork: {},
-    accent,
+    provider,
+    appId: provider === "steam" ? artID : undefined,
+    artwork: {
+      cover: `${cdn}${artID}/library_600x900.jpg`,
+      hero: `${cdn}${artID}/library_hero.jpg`,
+    },
+    accent: browserAccents[i],
     installed: true,
     running: false,
-    playtimeMinutes: 300 + i * 240,
-    lastPlayed: new Date(Date.now() - (i + 1) * 86_400_000).toISOString(),
+    demo: true,
+    playtimeMinutes: minutes,
+    sizeBytes: Math.round(sizeGB * 1024 ** 3),
+    tags,
+    lastPlayed: new Date(Date.now() - days * 86_400_000).toISOString(),
   }));
 }
+
+/** 和上面一一对应的主色：演示数据没有本地封面可抽色，直接写死。 */
+const browserAccents = [
+  "#c9a227",
+  "#a5642f",
+  "#e0c341",
+  "#c0392b",
+  "#6c7f9a",
+  "#4f7f8a",
+  "#b8863b",
+  "#7a8f4f",
+];

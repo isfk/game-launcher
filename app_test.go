@@ -31,8 +31,21 @@ func TestLibraryFallsBackToDemo(t *testing.T) {
 	if len(res.Games) == 0 {
 		t.Fatal("演示数据不该是空的")
 	}
-	if res.Games[0].Provider != "demo" {
-		t.Errorf("演示数据的 Provider = %q", res.Games[0].Provider)
+	// 演示数据用真平台名排开（顶栏统计才像真库），所以靠 Demo 位认它
+	providers := make(map[string]int)
+	for _, g := range res.Games {
+		if !g.Demo {
+			t.Errorf("%q 是演示数据，Demo 应该为 true", g.Title)
+		}
+		providers[g.Provider]++
+	}
+	for _, want := range []string{"steam", "epic", "wegame"} {
+		if providers[want] == 0 {
+			t.Errorf("演示数据应该覆盖 %s，实际只有 %v", want, providers)
+		}
+	}
+	if res.Games[0].Artwork.Cover == "" {
+		t.Error("演示数据应该有封面地址，否则首页是一排渐变色块")
 	}
 	if res.ScannedAt.IsZero() {
 		t.Error("ScannedAt 应该被填上")

@@ -757,7 +757,9 @@ onUnmounted(() => {
         </ul>
 
         <p v-if="lib.isDemo" class="note">
-          演示数据 · 没找到 Steam 游戏库（可用 <code>LAUNCHER_STEAM_DIR</code> 指定）
+          演示数据 · 没扫到 Steam / Epic / WeGame 的库
+          （可用 <code>LAUNCHER_STEAM_DIR</code> / <code>LAUNCHER_EPIC_DIR</code> /
+          <code>LAUNCHER_WEGAME_DIR</code> 指定）
         </p>
 
       </template>
