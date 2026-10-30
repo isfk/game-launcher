@@ -63,9 +63,28 @@ const nav = usePanelNav(() => [
   { key: "add", activate: () => void addGame() },
   { key: "rescan", activate: () => emit("rescan") },
   { key: "iconpos", activate: () => void cycleIcon() },
+  { key: "sortby", activate: () => void lib.cycleSortBy() },
+  { key: "sortdir", activate: () => void lib.toggleSortDir() },
+  { key: "filter", activate: () => lib.cyclePlatformFilter() },
+  { key: "unhide", activate: () => void lib.unhideAll() },
   { key: "sound", activate: () => toggleSound() },
   { key: "quit", activate: () => void Launcher.quit() },
 ]);
+
+/** 文案映射：设置里显示的是人话，不是内部字段值。 */
+const SORT_LABEL: Record<string, string> = {
+  recent: "最近游玩",
+  name: "名称",
+  playtime: "游玩时长",
+  size: "体积",
+};
+const FILTER_LABEL: Record<string, string> = {
+  "": "全部",
+  steam: "Steam",
+  epic: "Epic",
+  wegame: "WeGame",
+  manual: "手动添加",
+};
 
 /** 位置的显示文案：就是四个词，和卡片上的四个角一一对应。 */
 const ICON_POS_LABEL: Record<string, string> = {
@@ -181,10 +200,73 @@ function toggleSound() {
 
         <li>
           <div>
+            <span class="label">排序方式</span>
+            <span class="desc">收藏永远置顶，这里只决定同类之内的顺序</span>
+          </div>
+          <button
+            class="btn"
+            :class="{ focused: nav.isFocused('sortby') }"
+            @mouseenter="nav.focusTo(4)"
+            @click="lib.cycleSortBy()"
+          >
+            {{ SORT_LABEL[lib.sortBy] ?? "最近游玩" }}
+          </button>
+        </li>
+
+        <li>
+          <div>
+            <span class="label">排序方向</span>
+            <span class="desc">{{ lib.sortDir === "asc" ? "从小到大 / A→Z" : "从大到小 / Z→A" }}</span>
+          </div>
+          <button
+            class="btn"
+            :class="{ focused: nav.isFocused('sortdir') }"
+            @mouseenter="nav.focusTo(5)"
+            @click="lib.toggleSortDir()"
+          >
+            {{ lib.sortDir === "asc" ? "升序" : "降序" }}
+          </button>
+        </li>
+
+        <li>
+          <div>
+            <span class="label">平台筛选</span>
+            <span class="desc">只看某个平台，也可以点顶栏那几组数字</span>
+          </div>
+          <button
+            class="btn"
+            :class="{ focused: nav.isFocused('filter') }"
+            @mouseenter="nav.focusTo(6)"
+            @click="lib.cyclePlatformFilter()"
+          >
+            {{ FILTER_LABEL[lib.platformFilter] ?? "全部" }}
+          </button>
+        </li>
+
+        <li>
+          <div>
+            <span class="label">恢复隐藏的游戏</span>
+            <span class="desc">
+              {{ lib.hiddenCount ? `有 ${lib.hiddenCount} 部被藏在启动器里（客户端没动）` : "没有被隐藏的游戏" }}
+            </span>
+          </div>
+          <button
+            class="btn"
+            :class="{ focused: nav.isFocused('unhide') }"
+            :disabled="!lib.hiddenCount"
+            @mouseenter="nav.focusTo(7)"
+            @click="lib.unhideAll()"
+          >
+            {{ lib.hiddenCount ? `恢复 ${lib.hiddenCount} 部` : "无" }}
+          </button>
+        </li>
+
+        <li>
+          <div>
             <span class="label">界面音效</span>
             <span class="desc">{{ sound ? "开" : "关" }}</span>
           </div>
-          <button class="btn" :class="{ focused: nav.isFocused('sound') }" @mouseenter="nav.focusTo(4)" @click="toggleSound">
+          <button class="btn" :class="{ focused: nav.isFocused('sound') }" @mouseenter="nav.focusTo(8)" @click="toggleSound">
             {{ sound ? "关闭" : "打开" }}
           </button>
         </li>
@@ -204,7 +286,7 @@ function toggleSound() {
           <button
             class="btn danger"
             :class="{ focused: nav.isFocused('quit') }"
-            @mouseenter="nav.focusTo(5)"
+            @mouseenter="nav.focusTo(9)"
             @click="Launcher.quit()"
           >
             退出

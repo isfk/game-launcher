@@ -28,6 +28,13 @@ type Settings struct {
 	// IconPos 是卡片上平台图标的位置：tl / tr / bl / br。
 	// bl 是「和游戏名同一行」，也是默认值。老配置没有这个字段时用默认值补。
 	IconPos string `json:"iconPos,omitempty"`
+	// Hidden 是「只在启动器里藏起来」的游戏 key。客户端那边什么都不动，
+	// 和 Uninstall 是两件事：藏起来的游戏还能从设置里恢复。
+	Hidden []string `json:"hidden,omitempty"`
+	// SortBy / SortDir 是首页的排序方式与方向。
+	// 收藏永远置顶，这两个只决定「同类之内」的顺序。
+	SortBy  string `json:"sortBy,omitempty"`
+	SortDir string `json:"sortDir,omitempty"`
 }
 
 // ManualGame 是一条手动添加的记录：只要路径和显示名，没有平台信息。
@@ -58,8 +65,48 @@ func NormalizeIconPos(pos string) string {
 	}
 }
 
+// 排序字段。recent = 最近游玩（Steam 有数据，其他平台按名字兜底）。
+const (
+	SortByRecent   = "recent"
+	SortByName     = "name"
+	SortByPlaytime = "playtime"
+	SortBySize     = "size"
+)
+
+// 排序方向。
+const (
+	SortAsc  = "asc"
+	SortDesc = "desc"
+)
+
+// SortOptions 是设置面板里轮转的顺序，也是校验白名单。
+var SortOptions = []string{SortByRecent, SortByName, SortByPlaytime, SortBySize}
+
+// NormalizeSortBy 收敛非法的排序字段，默认「最近游玩」。
+func NormalizeSortBy(by string) string {
+	for _, opt := range SortOptions {
+		if by == opt {
+			return by
+		}
+	}
+	return SortByRecent
+}
+
+// NormalizeSortDir 收敛非法的方向，默认「降序」（最近的/大的排前面）。
+func NormalizeSortDir(dir string) string {
+	if dir == SortAsc {
+		return SortAsc
+	}
+	return SortDesc
+}
+
 func Default() Settings {
-	return Settings{SoundEnabled: true, IconPos: IconPosBottomLeft}
+	return Settings{
+		SoundEnabled: true,
+		IconPos:      IconPosBottomLeft,
+		SortBy:       SortByRecent,
+		SortDir:      SortDesc,
+	}
 }
 
 const fileName = "settings.json"

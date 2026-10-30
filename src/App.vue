@@ -188,6 +188,29 @@ async function toggleFullScreen() {
   await Launcher.toggleFullScreen();
 }
 
+/** hideCurrent 只在启动器里藏起当前这部（客户端和磁盘都不动）。 */
+async function hideCurrent() {
+  const game = lib.selected;
+  if (!game) return;
+  sfx.back();
+  detailOpen.value = false;
+  showToast(`已隐藏「${game.title}」· 可在设置 → 恢复隐藏的游戏里找回`);
+  await lib.toggleHidden(game.key, true);
+}
+
+/** openFolder 交给系统文件管理器打开安装目录。 */
+async function openFolder() {
+  const game = lib.selected;
+  if (!game) return;
+  try {
+    await Launcher.openFolder(game.key);
+    sfx.confirm();
+  } catch (e) {
+    sfx.error();
+    showToast(`打开目录失败：${e instanceof Error ? e.message : String(e)}`);
+  }
+}
+
 async function rescan() {
   sfx.confirm();
   await lib.load(true);
@@ -608,7 +631,7 @@ onUnmounted(() => {
 <template>
   <div class="home" :class="{ expanded: detailOpen || settingsOpen }">
     <Backdrop :game="lib.selected" />
-    <TopBar :breakdown="lib.providerCounts" />
+    <TopBar :breakdown="lib.providerCounts" :active="lib.platformFilter" @filter="lib.setPlatformFilter" />
 
     <section class="meta" :style="{ '--accent': accentOf(lib.selected) }">
       <p v-if="lib.loading" class="status">正在扫描游戏库…</p>
@@ -657,6 +680,8 @@ onUnmounted(() => {
       @launch="launchFromDetail"
       @favorite="favoriteFromDetail"
       @uninstall="askUninstall"
+      @hide="hideCurrent"
+      @open-folder="openFolder"
       @confirm-uninstall="confirmDestructive"
       @cancel-uninstall="cancelUninstall"
     />

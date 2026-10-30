@@ -44,6 +44,10 @@ const emit = defineEmits<{
   favorite: [];
   /** 请求进入卸载确认 */
   uninstall: [];
+  /** 只在启动器里藏起来（不动客户端、不动磁盘） */
+  hide: [];
+  /** 在文件管理器里打开安装目录 */
+  "open-folder": [];
   /** 确认卸载 */
   "confirm-uninstall": [];
   /** 取消卸载 */
@@ -105,6 +109,8 @@ const canUninstall = computed(
 const canRemove = computed(() => props.game?.provider === "manual");
 /** 底部要不要给「卸载 / 移除」留位置。 */
 const canDestruct = computed(() => canUninstall.value || canRemove.value);
+/** 有安装目录才能「打开目录」。 */
+const canOpenFolder = computed(() => !!props.game?.installDir);
 
 const destructLabel = computed(() => (canRemove.value ? "移除" : "卸载"));
 
@@ -116,8 +122,10 @@ const nav = usePanelNav(() => {
   const items = [
     { key: "launch", activate: () => emit("launch") },
     { key: "favorite", activate: () => emit("favorite") },
+    { key: "hide", activate: () => emit("hide") },
   ];
   if (canDestruct.value) items.push({ key: "uninstall", activate: () => emit("uninstall") });
+  if (canOpenFolder.value) items.push({ key: "openfolder", activate: () => emit("open-folder") });
   items.push({ key: "close", activate: () => emit("close") });
   return items;
 });
@@ -166,7 +174,11 @@ function shortenPath(path: string, head = 14, tail = 22): string {
           <dl>
             <div v-for="spec in specs" :key="spec.label" class="spec">
               <dt>{{ spec.label }}</dt>
-              <dd :class="{ mono: spec.mono, path: spec.path }" :title="spec.value">
+              <dd
+                :class="{ mono: spec.mono, path: spec.path, link: spec.path && canOpenFolder }"
+                :title="spec.path ? `${spec.value}（点击打开目录）` : spec.value"
+                @click="spec.path && canOpenFolder && emit('open-folder')"
+              >
                 {{ spec.path ? shortenPath(spec.value) : spec.value }}
               </dd>
             </div>
@@ -214,10 +226,18 @@ function shortenPath(path: string, head = 14, tail = 22): string {
             {{ favorite ? "已收藏" : "收藏" }}
           </button>
           <button
+            class="act ghost"
+            :class="{ focused: nav.isFocused('hide') }"
+            @mouseenter="nav.focusTo(2)"
+            @click="emit('hide')"
+          >
+            隐藏
+          </button>
+          <button
             v-if="canDestruct"
             class="act ghost danger-text"
             :class="{ focused: nav.isFocused('uninstall') }"
-            @mouseenter="nav.focusTo(2)"
+            @mouseenter="nav.focusTo(3)"
             @click="emit('uninstall')"
           >
             {{ destructLabel }}
@@ -225,7 +245,7 @@ function shortenPath(path: string, head = 14, tail = 22): string {
           <button
             class="act ghost"
             :class="{ focused: nav.isFocused('close') }"
-            @mouseenter="nav.focusTo(canDestruct ? 3 : 2)"
+            @mouseenter="nav.focusTo(canDestruct ? 5 : 4)"
             @click="emit('close')"
           >
             <i class="glyph">{{ keys.close }}</i>

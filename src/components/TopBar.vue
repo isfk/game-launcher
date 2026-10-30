@@ -9,10 +9,14 @@ import ProviderIcon from "./ProviderIcon.vue";
  * 平台名走小字号 + 大字距（当标签用），数量用等宽数字加重——
  * 视线先抓到数字，再看到平台，最后才是容器本身（几乎看不见的磨砂底）。
  */
-defineProps<{
+const props = defineProps<{
   /** [{ id: "steam", count: 2 }, ...]，空数组表示只有演示数据 */
   breakdown: Array<{ id: string; count: number }>;
+  /** 当前生效的平台筛选，空串 = 全部 */
+  active?: string;
 }>();
+
+const emit = defineEmits<{ filter: [id: string] }>();
 
 const clock = useClock();
 
@@ -32,11 +36,18 @@ function labelOf(id: string) {
   <header class="topbar">
     <div class="sources" :class="{ flat: !breakdown.length }">
       <template v-if="breakdown.length">
-        <span v-for="item in breakdown" :key="item.id" class="src">
+        <button
+          v-for="item in breakdown"
+          :key="item.id"
+          class="src"
+          :class="{ on: props.active === item.id }"
+          :title="props.active === item.id ? '点击显示全部' : `只看 ${labelOf(item.id)}`"
+          @click="emit('filter', item.id)"
+        >
           <ProviderIcon :provider="item.id" size="0.95rem" />
           <span class="label">{{ labelOf(item.id) }}</span>
           <span class="num">{{ item.count }}</span>
-        </span>
+        </button>
       </template>
       <span v-else class="src demo">
         <i class="dot" />
@@ -94,7 +105,30 @@ function labelOf(id: string) {
   display: inline-flex;
   align-items: center;
   gap: 0.4rem;
+  height: 100%;
   padding: 0 0.75rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+  transition:
+    background 0.2s var(--ease-out),
+    opacity 0.2s var(--ease-out);
+}
+
+.src:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
+
+/* 选中的平台：亮起来 + 数量换成主色感的白 */
+.src.on {
+  background: rgba(255, 255, 255, 0.1);
+}
+
+.src.on .label {
+  color: rgba(255, 255, 255, 0.72);
 }
 
 /* 组间发丝线：只在中间画，两端不画 */

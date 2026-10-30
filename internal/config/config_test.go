@@ -163,3 +163,31 @@ func TestIconPosPersists(t *testing.T) {
 		t.Errorf("读回来的图标位置 = %q，期望 %q", again.IconPos, IconPosTopRight)
 	}
 }
+
+// TestSortDefaultsAndNormalizes 覆盖排序字段/方向的默认值与非法值收敛。
+func TestSortDefaultsAndNormalizes(t *testing.T) {
+	d := Default()
+	if d.SortBy != SortByRecent || d.SortDir != SortDesc {
+		t.Errorf("默认排序 = %q/%q，期望 recent/desc", d.SortBy, d.SortDir)
+	}
+
+	for _, by := range SortOptions {
+		if got := NormalizeSortBy(by); got != by {
+			t.Errorf("NormalizeSortBy(%q) = %q", by, got)
+		}
+	}
+	for _, bad := range []string{"", "name_", "NAME", "最近"} {
+		if got := NormalizeSortBy(bad); got != SortByRecent {
+			t.Errorf("坏值 %q 应该回落到 recent，实际 %q", bad, got)
+		}
+	}
+
+	if got := NormalizeSortDir("asc"); got != SortAsc {
+		t.Errorf("NormalizeSortDir(asc) = %q", got)
+	}
+	for _, bad := range []string{"", "up", "ASC"} {
+		if got := NormalizeSortDir(bad); got != SortDesc {
+			t.Errorf("坏值 %q 应该回落到 desc，实际 %q", bad, got)
+		}
+	}
+}

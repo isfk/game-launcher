@@ -512,6 +512,21 @@ WeGame 的 `tencent://` 协议需要它内部的游戏 id，没有稳定来源�
 **卸载**：不支持——由 WeGame 客户端管理，详情面板不显示卸载按钮，
 误调 `Uninstall` 会提示「请在 WeGame 客户端里卸载」。
 
+## 4.39.1 游戏管理：隐藏 / 排序 / 筛选 / 打开目录
+
+| 功能 | 实现 |
+|---|---|
+| **隐藏（仅启动器内）** | `Settings.Hidden []string` + `SetHidden(key, bool)`。不碰客户端、不碰磁盘，随时可恢复；详情面板「隐藏」按钮，设置里「恢复隐藏的游戏（N）」 |
+| **排序** | `Settings.SortBy`（recent / name / playtime / size）+ `SortDir`（asc / desc），后端 `SetSort` 用 `NormalizeSortBy/Dir` 收敛非法值。**收藏永远置顶**，排序只决定同类之内 |
+| **平台筛选** | 顶栏每组平台可点击（再点一次取消）；设置里也能轮转：全部 → Steam → Epic → WeGame → 手动 |
+| **打开安装目录** | `OpenFolder(key)` → 交给系统文件管理器（`openURL(installDir)`），目录不存在会报错。详情面板「安装位置」那一行即可点击 |
+
+**架构改动**：store 里把「后端给的完整列表」`allGames` 和「视图列表」`games(computed)` 分开。
+隐藏 / 筛选 / 排序全是视图层的事——数据不动，取消后立刻还原；
+`reconcileFocus(keepKey)` 负责让焦点跟着数据走（藏掉的正好是当前这部时顺延一位）。
+副作用：`ensureAccent` / `applyArtwork` / `setRunning` 改成写 `allGames`，
+因为 `games` 是 computed，不能就地 mutate。
+
 ## 4.40.1 顶栏平台统计（不做「胶囊塞一行字」）
 
 右上角原来是 `▣▣▣ Steam + Epic + WeGame · 6 部` 一颗胶囊，信息糊成一团。

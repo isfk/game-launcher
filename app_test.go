@@ -719,3 +719,107 @@ func TestSetIconPosValidates(t *testing.T) {
 		t.Errorf("坏值应该回落到左下，实际 %q", s.IconPos)
 	}
 }
+
+// TestSetHiddenToggles 覆盖「只在启动器里隐藏」：加、去重、恢复，
+// 并且全程不碰客户端也不碰磁盘。
+func TestSetHiddenToggles(t *testing.T) {
+	l := &Launcher{}
+	l.setConfig(config.NewStore(t.TempDir()))
+
+	s, err := l.SetHidden("steam:1", true)
+	if err != nil {
+		t.Fatalf("SetHidden: %v", err)
+	}
+	if len(s.Hidden) != 1 || s.Hidden[0] != "steam:1" {
+		t.Fatalf("隐藏列表 = %v", s.Hidden)
+	}
+
+	// 重复隐藏不该出现两条
+	s, err = l.SetHidden("steam:1", true)
+	if err != nil {
+		t.Fatalf("SetHidden: %v", err)
+	}
+	if len(s.Hidden) != 1 {
+		t.Errorf("重复隐藏产生了 %d 条", len(s.Hidden))
+	}
+
+	// 再藏一部，然后恢复第一部
+	if _, err := l.SetHidden("steam:2", true); err != nil {
+		t.Fatal(err)
+	}
+	s, err = l.SetHidden("steam:1", false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(s.Hidden) != 1 || s.Hidden[0] != "steam:2" {
+		t.Errorf("恢复后隐藏列表 = %v，期望只剩 steam:2", s.Hidden)
+	}
+
+	if _, err := l.SetHidden("", true); err == nil {
+		t.Error("空 key 应该报错")
+	}
+}
+
+// TestSetSortNormalizes 确认排序字段/方向的非法值都会被收敛。
+func TestSetSortNormalizes(t *testing.T) {
+	l := &Launcher{}
+	l.setConfig(config.NewStore(t.TempDir()))
+
+	s, err := l.SetSort("playtime", "asc")
+	if err != nil {
+		t.Fatalf("SetSort: %v", err)
+	}
+	if s.SortBy != config.SortByPlaytime || s.SortDir != config.SortAsc {
+		t.Errorf("排序 = %q/%q", s.SortBy, s.SortDir)
+	}
+
+	s, err = l.SetSort("乱七八糟", "sideways")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.SortBy != config.SortByRecent || s.SortDir != config.SortDesc {
+		t.Errorf("坏值应该回落默认，实际 %q/%q", s.SortBy, s.SortDir)
+	}
+}
+
+// TestOpenFolderUsesInstallDir 覆盖「打开安装目录」：交给系统文件管理器，
+// 目录不存在时报错（不然会静默打开一个空窗口）。
+func TestOpenFolderUsesInstallDir(t *testing.T) {
+	t.Setenv("LAUNCHER_NO_STORE_ASSETS", "1")
+	t.Setenv("LAUNCHER_STEAM_DIR", t.TempDir())
+
+	dir := t.TempDir()
+	l := &Launcher{}
+	l.games = []library.Game{{Key: "steam:1", Title: "ELDEN RING", Provider: "steam", InstallDir: dir}}
+
+	var got string
+	restore := swapOpener(func(_ context.Context, target string) error {
+		got = target
+		return nil
+	})
+	defer restore()
+
+	if err := l.OpenFolder(context.Background(), "steam:1"); err != nil {
+		t.Fatalf("OpenFolder: %v", err)
+	}
+	if got != dir {
+		t.Errorf("打开的目标 = %q，期望安装目录 %q", got, dir)
+	}
+
+	// 目录被删掉之后要报错
+	if err := os.RemoveAll(dir); err != nil {
+		t.Fatal(err)
+	}
+	if err := l.OpenFolder(context.Background(), "steam:1"); err == nil {
+		t.Error("目录不存在应该报错")
+	}
+
+	// 没有安装目录的游戏也要报错
+	l.games = append(l.games, library.Game{Key: "wegame:x", Title: "某游戏", Provider: "wegame"})
+	if err := l.OpenFolder(context.Background(), "wegame:x"); err == nil {
+		t.Error("没有安装目录应该报错")
+	}
+	if err := l.OpenFolder(context.Background(), "steam:404"); err == nil {
+		t.Error("不存在的 key 应该报错")
+	}
+}

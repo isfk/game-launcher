@@ -7,7 +7,14 @@ const FAVORITES_KEY = "launcher.favorites";
 
 /** useLibrary 是界面唯一的数据源：游戏列表、当前焦点、扫描状态。 */
 export const useLibrary = defineStore("library", () => {
-  const games = ref<Game[]>([]);
+  // allGames 是后端给的完整列表；games 是「过滤 + 排序」之后真正显示的那份。
+  // 分开存是为了让隐藏、筛选、排序都只是视图层的事：数据不动，
+  // 取消隐藏 / 换筛选时立刻能还原回来。
+  const allGames = ref<Game[]>([]);
+  const hidden = ref<Set<string>>(new Set());
+  const sortBy = ref<string>("recent");
+  const sortDir = ref<string>("desc");
+  const platformFilter = ref<string>(""); // "" = 全部平台
   const source = ref(""); // steam | demo
   const roots = ref<string[]>([]);
   const index = ref(0);
@@ -21,8 +28,17 @@ export const useLibrary = defineStore("library", () => {
   // 已经问过后端要过主色的 key（含没取到的情况），避免反复请求
   const accentAsked = new Set<string>();
 
+  /** games 是视图列表：去掉隐藏的、按平台筛选、再排序（收藏永远置顶）。 */
+  const games = computed<Game[]>(() => {
+    const list = allGames.value.filter(
+      (g) => !hidden.value.has(g.key) && (!platformFilter.value || g.provider === platformFilter.value),
+    );
+    return orderGames(list);
+  });
+
   const selected = computed<Game | undefined>(() => games.value[index.value]);
   const isDemo = computed(() => source.value === "demo");
+  const hiddenCount = computed(() => hidden.value.size);
 
   /**
    * loadSettings 从后端读一次用户设置（音效开关、收藏）。
@@ -36,6 +52,9 @@ export const useLibrary = defineStore("library", () => {
       const s = await Launcher.settings();
       soundEnabled.value = s.soundEnabled;
       iconPos.value = s.iconPos || "bl";
+      hidden.value = new Set(s.hidden ?? []);
+      sortBy.value = s.sortBy || "recent";
+      sortDir.value = s.sortDir || "desc";
       favorites.value = new Set(s.favorites ?? []);
     } catch {
       // 读不到设置就按默认值走，不影响使用
@@ -58,6 +77,90 @@ export const useLibrary = defineStore("library", () => {
     } catch {
       // 落盘失败先用内存里的值
     }
+  }
+
+  /** 排序字段的轮转顺序，和设置面板里看到的一致。 */
+  const SORT_OPTIONS = ["recent", "name", "playtime", "size"] as const;
+  /** 平台筛选的轮转顺序：全部 → 各平台 → 全部。 */
+  const FILTER_OPTIONS = ["", "steam", "epic", "wegame", "manual"] as const;
+
+  /** toggleHidden 只在启动器里藏 / 恢复一部游戏（不动客户端、不动磁盘）。 */
+  async function toggleHidden(key: string, hide: boolean) {
+    const keepKey = selected.value?.key;
+    const next = new Set(hidden.value);
+    if (hide) next.add(key);
+    else next.delete(key);
+    hidden.value = next; // 先乐观更新，界面立刻反应
+
+    // 藏掉的正好是当前这部：焦点往下顺延一位
+    reconcileFocus(hide && keepKey === key ? undefined : keepKey);
+
+    if (!isMyGo()) return;
+    try {
+      const s = await Launcher.setHidden(key, hide);
+      hidden.value = new Set(s.hidden ?? []);
+    } catch {
+      // 落盘失败就先用内存里的值
+    }
+  }
+
+  /** unhideAll 一次性把藏起来的都恢复。 */
+  async function unhideAll() {
+    const keys = [...hidden.value];
+    hidden.value = new Set();
+    if (!isMyGo()) return;
+    for (const key of keys) {
+      try {
+        await Launcher.setHidden(key, false);
+      } catch {
+        // 单条失败不影响其他
+      }
+    }
+  }
+
+  /** cycleSortBy 换一个排序字段并落盘。 */
+  async function cycleSortBy() {
+    const i = SORT_OPTIONS.indexOf(sortBy.value as (typeof SORT_OPTIONS)[number]);
+    const next = SORT_OPTIONS[(i + 1) % SORT_OPTIONS.length] ?? "recent";
+    const keepKey = selected.value?.key;
+    sortBy.value = next;
+    reconcileFocus(keepKey);
+    if (!isMyGo()) return;
+    try {
+      const s = await Launcher.setSort(next, sortDir.value);
+      sortBy.value = s.sortBy || next;
+    } catch {
+      // 落盘失败先用内存值
+    }
+  }
+
+  /** toggleSortDir 切换升 / 降序并落盘。 */
+  async function toggleSortDir() {
+    const next = sortDir.value === "desc" ? "asc" : "desc";
+    const keepKey = selected.value?.key;
+    sortDir.value = next;
+    reconcileFocus(keepKey);
+    if (!isMyGo()) return;
+    try {
+      const s = await Launcher.setSort(sortBy.value, next);
+      sortDir.value = s.sortDir || next;
+    } catch {
+      // 落盘失败先用内存值
+    }
+  }
+
+  /** cyclePlatformFilter 在「全部 → Steam → Epic → WeGame → 手动」之间轮转。 */
+  function cyclePlatformFilter() {
+    const i = FILTER_OPTIONS.indexOf(platformFilter.value as (typeof FILTER_OPTIONS)[number]);
+    const next = FILTER_OPTIONS[(i + 1) % FILTER_OPTIONS.length] ?? "";
+    platformFilter.value = next;
+    index.value = 0; // 换了筛选，回到第一部
+  }
+
+  /** setPlatformFilter 直接指定筛选（顶栏点平台用）。 */
+  function setPlatformFilter(id: string) {
+    platformFilter.value = platformFilter.value === id ? "" : id;
+    index.value = 0;
   }
 
   /** setSoundEnabled 改音效开关并落盘。 */
@@ -96,53 +199,82 @@ export const useLibrary = defineStore("library", () => {
     //
     // 注意这里是构造新对象而不是就地赋值：后台事件送来的载荷是冻结的，
     // 直接写 game.accent 会抛 TypeError（严格模式下），列表就换不掉了。
-    const before = new Map(games.value.map((g) => [g.key, g]));
+    const before = new Map(allGames.value.map((g) => [g.key, g]));
     const keepKey = selected.value?.key;
 
-    games.value = withFavoritesFirst(
-      games_.map((game) => {
-        const old = before.get(game.key);
-        if (!old) return game;
-        return { ...game, accent: game.accent || old.accent, running: game.running || old.running };
-      }),
-    );
+    allGames.value = games_.map((game) => {
+      const old = before.get(game.key);
+      if (!old) return game;
+      return { ...game, accent: game.accent || old.accent, running: game.running || old.running };
+    });
     source.value = source_;
     roots.value = roots_;
-    // 刷新后尽量停在原来那部游戏上，别把用户甩回第一个。
-    const found = keepKey ? games.value.findIndex((g) => g.key === keepKey) : -1;
-    index.value = found >= 0 ? found : 0;
+    reconcileFocus(keepKey);
   }
 
   /** 顶栏用：按平台统计数量，顺序固定，没有的平台不出现。 */
   const providerCounts = computed(() => {
     const counts = new Map<string, number>();
-    for (const g of games.value) counts.set(g.provider, (counts.get(g.provider) ?? 0) + 1);
+    for (const g of allGames.value) {
+      if (hidden.value.has(g.key)) continue;
+      counts.set(g.provider, (counts.get(g.provider) ?? 0) + 1);
+    }
     return (["steam", "epic", "wegame", "manual"] as const)
       .filter((id) => counts.has(id))
       .map((id) => ({ id, count: counts.get(id) ?? 0 }));
   });
 
-  /** withFavoritesFirst 收藏置顶，其余保持后端给的顺序。 */
-  function withFavoritesFirst(list: Game[]): Game[] {
-    if (!favorites.value.size) return list;
+  /**
+   * orderGames 排序：收藏永远置顶，同类之内按用户选的字段与方向。
+   *
+   * 排序放在数据层而不是渲染层：卡片下标就是焦点下标，
+   * 两边顺序不一致的话 ←→ 会跳着走。
+   */
+  function orderGames(list: Game[]): Game[] {
+    const dir = sortDir.value === "asc" ? 1 : -1;
+    const by = sortBy.value;
+
+    const value = (g: Game): string | number => {
+      switch (by) {
+        case "name":
+          return g.title.toLowerCase();
+        case "playtime":
+          return g.playtimeMinutes ?? 0;
+        case "size":
+          return g.sizeBytes ?? 0;
+        case "recent":
+        default:
+          return g.lastPlayed ? Date.parse(g.lastPlayed) : 0;
+      }
+    };
+
     return [...list].sort((a, b) => {
       const fa = favorites.value.has(a.key) ? 0 : 1;
       const fb = favorites.value.has(b.key) ? 0 : 1;
-      return fa - fb;
+      if (fa !== fb) return fa - fb; // 收藏置顶，不受排序方向影响
+
+      const va = value(a);
+      const vb = value(b);
+      if (typeof va === "string" || typeof vb === "string") {
+        return String(va).localeCompare(String(vb), "zh-Hans-CN") * dir;
+      }
+      if (va === vb) {
+        // 同分（比如都没玩过）时按名字兜底，保证顺序稳定
+        return a.title.localeCompare(b.title, "zh-Hans-CN");
+      }
+      return (va - vb) * dir;
     });
   }
 
-  /**
-   * sortGames 收藏变了之后重排，并把焦点跟回原来那部游戏。
-   *
-   * 为什么排序而不是渲染时排：卡片下标就是焦点下标，
-   * 两边顺序不一致的话 ←→ 会跳着走。
-   */
-  function sortGames() {
-    if (!favorites.value.size) return;
-    const keepKey = selected.value?.key;
-    games.value = withFavoritesFirst(games.value);
-    if (keepKey) focusKey(keepKey);
+  /** reconcileFocus 让焦点跟着数据走：尽量停在 keepKey 上。 */
+  function reconcileFocus(keepKey?: string) {
+    const list = games.value;
+    if (!list.length) {
+      index.value = 0;
+      return;
+    }
+    const found = keepKey ? list.findIndex((g) => g.key === keepKey) : -1;
+    index.value = found >= 0 ? found : Math.min(index.value, list.length - 1);
   }
 
   /** focusKey 把焦点直接放到某部游戏上（详情面板用）。 */
@@ -186,7 +318,7 @@ export const useLibrary = defineStore("library", () => {
     const target = key ?? selected.value?.key;
     if (!target || accentAsked.has(target)) return;
 
-    const game = games.value.find((g) => g.key === target);
+    const game = allGames.value.find((g) => g.key === target);
     if (!game || game.accent) return;
 
     accentAsked.add(target);
@@ -202,7 +334,7 @@ export const useLibrary = defineStore("library", () => {
 
   /** applyArtwork 把后端缓存到本地的图片与主色写回列表。 */
   function applyArtwork(update: ArtworkUpdate) {
-    const game = games.value.find((g) => g.key === update.key);
+    const game = allGames.value.find((g) => g.key === update.key);
     if (!game) return;
     game.artwork = update.artwork;
     if (update.accent) game.accent = update.accent;
@@ -210,7 +342,7 @@ export const useLibrary = defineStore("library", () => {
 
   /** setRunning 更新「是否正在运行」，卡片上会显示小圆点。 */
   function setRunning(key: string, running: boolean) {
-    const game = games.value.find((g) => g.key === key);
+    const game = allGames.value.find((g) => g.key === key);
     if (game) game.running = running;
   }
 
@@ -241,7 +373,7 @@ export const useLibrary = defineStore("library", () => {
     } else {
       localStorage.setItem(FAVORITES_KEY, JSON.stringify([...next]));
     }
-    sortGames();
+    reconcileFocus(target);
     return added;
   }
 
@@ -256,6 +388,17 @@ export const useLibrary = defineStore("library", () => {
     soundEnabled,
     iconPos,
     providerCounts,
+    hidden,
+    hiddenCount,
+    sortBy,
+    sortDir,
+    platformFilter,
+    toggleHidden,
+    unhideAll,
+    cycleSortBy,
+    toggleSortDir,
+    cyclePlatformFilter,
+    setPlatformFilter,
     cycleIconPos,
     selected,
     isDemo,

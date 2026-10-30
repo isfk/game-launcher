@@ -67,6 +67,9 @@ export interface Settings {
   favorites?: string[];
   manualGames?: ManualGame[];
   iconPos?: string;
+  hidden?: string[];
+  sortBy?: string;
+  sortDir?: string;
 }
 
 export interface State {
@@ -114,6 +117,10 @@ export const Launcher = {
   library(refresh: boolean): Promise<LibraryResult> {
     return call("Launcher.Library", refresh);
   },
+  /** OpenFolder 在系统文件管理器里打开一部游戏的安装目录。 */
+  openFolder(key: string): Promise<void> {
+    return call("Launcher.OpenFolder", key);
+  },
   /** PadNames 列出当前接上的手柄，设置页用。 */
   padNames(): Promise<string[]> {
     return call("Launcher.PadNames");
@@ -146,9 +153,22 @@ export const Launcher = {
   setFocused(on: boolean): Promise<void> {
     return call("Launcher.SetFocused", on);
   },
+  /**
+   * SetHidden 把一部游戏「只在启动器里藏起来」，或从隐藏里恢复。
+   *
+   * 和 Uninstall 是两件事：这里不碰客户端、不碰磁盘，玩家随时能从设置里恢复。
+   * 藏起来的游戏不参与列表和顶栏统计。
+   */
+  setHidden(key: string, hidden: boolean): Promise<Settings> {
+    return call("Launcher.SetHidden", key, hidden);
+  },
   /** SetIconPos 改卡片上平台图标的位置（tl / tr / bl / br）。 */
   setIconPos(pos: string): Promise<Settings> {
     return call("Launcher.SetIconPos", pos);
+  },
+  /** SetSort 改首页的排序方式与方向，非法值会被收敛到合法取值。 */
+  setSort(by: string, dir: string): Promise<Settings> {
+    return call("Launcher.SetSort", by, dir);
   },
   /** SetSoundEnabled 记住界面音效开关。 */
   setSoundEnabled(enabled: boolean): Promise<Settings> {

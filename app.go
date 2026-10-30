@@ -182,6 +182,64 @@ func (l *Launcher) SetIconPos(pos string) (config.Settings, error) {
 	return l.saveSettings(next)
 }
 
+// SetHidden 把一部游戏「只在启动器里藏起来」，或从隐藏里恢复。
+//
+// 和 Uninstall 是两件事：这里不碰客户端、不碰磁盘，玩家随时能从设置里恢复。
+// 藏起来的游戏不参与列表和顶栏统计。
+func (l *Launcher) SetHidden(key string, hidden bool) (config.Settings, error) {
+	if key == "" {
+		return l.Settings(), fmt.Errorf("隐藏需要游戏 key")
+	}
+
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	next := l.settingsNow()
+
+	list := make([]string, 0, len(next.Hidden)+1)
+	found := false
+	for _, k := range next.Hidden {
+		if k == key {
+			found = true
+			if hidden {
+				list = append(list, k) // 已经在里面了，保持原样
+			}
+			continue
+		}
+		list = append(list, k)
+	}
+	if hidden && !found {
+		list = append(list, key)
+	}
+	next.Hidden = list
+	return l.saveSettings(next)
+}
+
+// SetSort 改首页的排序方式与方向，非法值会被收敛到合法取值。
+func (l *Launcher) SetSort(by, dir string) (config.Settings, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	next := l.settingsNow()
+	next.SortBy = config.NormalizeSortBy(by)
+	next.SortDir = config.NormalizeSortDir(dir)
+	return l.saveSettings(next)
+}
+
+// OpenFolder 在系统文件管理器里打开一部游戏的安装目录。
+func (l *Launcher) OpenFolder(ctx context.Context, key string) error {
+	game, found := l.gameByKey(key)
+	if !found {
+		return fmt.Errorf("找不到游戏 %q", key)
+	}
+	dir := game.InstallDir
+	if dir == "" {
+		return fmt.Errorf("「%s」没有记录安装目录", game.Title)
+	}
+	if _, err := os.Stat(dir); err != nil {
+		return fmt.Errorf("安装目录不在了：%s", dir)
+	}
+	return openURL(ctx, dir)
+}
+
 // SetFavorite 记住 / 取消一部游戏的收藏。
 //
 // 收藏只跟 key 有关，不需要游戏还在库里 —— 卸载了再装回来，
