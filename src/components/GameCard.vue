@@ -263,11 +263,19 @@ onUpdated(() => {
   box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
 }
 
+/* 单独显示的收藏星标（非右上位置时）
+ *
+ * 垂直位置要跟「右上角与平台图标同行」那一种对齐：
+ * cluster 顶边 0.55rem、内部按 1.05rem 的徽章垂直居中，徽章中心落在 1.075rem；
+ * 星标高 0.9rem，所以 top 取 0.625rem，中心正好也是 1.075rem。
+ * 两种状态下星标不跳位、字号也一致（0.9rem）。
+ */
 .star {
   position: absolute;
-  top: 0.5em;
-  right: 0.6em;
-  font-size: 0.85rem;
+  top: 0.625rem;
+  right: 0.55rem;
+  font-size: 0.9rem;
+  line-height: 1;
   color: #ffd479;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
 }

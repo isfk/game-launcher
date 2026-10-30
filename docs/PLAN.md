@@ -533,6 +533,9 @@ WeGame 的 `tencent://` 协议需要它内部的游戏 id，没有稳定来源�
 （`align-items: center` + `gap`），四个角只改 `top/left/right/bottom` 且统一用
 **rem** 而不是 em —— em 会跟着图标 font-size 缩放，四角留白就会算得不一样。
 右上角同时有收藏星标时，两者在同一个容器里排成一行：**星标在左、平台图标在右**。
+星标单独显示时（其他三个位置）位置要跟这里对齐：cluster 顶边 0.55rem、内部按
+1.05rem 徽章垂直居中 → 中心落在 1.075rem；星标高 0.9rem，所以 `top: 0.625rem`，
+两种状态中心都正好 1.075rem，切换时星标不跳、字号也一致（0.9rem）。
 
 **切换动画**：用 FLIP——`onBeforeUpdate` 量一次位置、`onUpdated` 再量一次，
 用 Web Animations 从旧位置补到新位置（420ms，`cubic-bezier(.22,1,.36,1)`）。
