@@ -31,7 +31,16 @@ function isFavorite(key: string) {
   return props.favorites?.has(key) ?? false;
 }
 
-const emit = defineEmits<{ close: []; select: [key: string]; focus: [key: string] }>();
+const emit = defineEmits<{
+  close: [];
+  /** 选中：把焦点带回首页（鼠标点击走这条） */
+  select: [key: string];
+  /** 直接启动 / 看详情 / 收藏：手柄 A / Y / X，键盘 Enter / Y / X */
+  launch: [key: string];
+  detail: [key: string];
+  favorite: [key: string];
+  focus: [key: string];
+}>();
 
 /** 每行固定 6 部（主机 UI 的常规密度，不做自定义）。 */
 const COLS = 6;
@@ -138,7 +147,34 @@ function activate(): boolean {
   return true;
 }
 
-defineExpose({ move, activate, reset });
+/**
+ * 网格里也能做事，不只「选中就回家」。
+ *
+ * 浏览大库时看到一部想玩的，不该被退回首页再按一次启动：
+ * 这三下就是首页那三下（A 启动 / Y 详情 / X 收藏），只是光标在网格里。
+ */
+function launch(): boolean {
+  const game = props.games[cursor.value];
+  if (!game) return false;
+  emit("launch", game.key);
+  return true;
+}
+
+function openDetail(): boolean {
+  const game = props.games[cursor.value];
+  if (!game) return false;
+  emit("detail", game.key);
+  return true;
+}
+
+function favorite(): boolean {
+  const game = props.games[cursor.value];
+  if (!game) return false;
+  emit("favorite", game.key);
+  return true;
+}
+
+defineExpose({ move, activate, launch, openDetail, favorite, reset });
 
 </script>
 
@@ -151,7 +187,13 @@ defineExpose({ move, activate, reset });
       </div>
       <div class="legend">
         <span>↑↓←→ 移动</span>
-        <span>Enter 选中</span>
+        <span>Enter 启动</span>
+        <span>Y 详情</span>
+        <span>X 收藏</span>
+        <span>S 设置</span>
+        <span>/ 搜索</span>
+        <span>F 全屏</span>
+        <span>R 刷新</span>
         <span>Esc 关闭</span>
         <button class="x" aria-label="关闭" @click="emit('close')">✕</button>
       </div>

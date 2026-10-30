@@ -88,6 +88,9 @@ const settingsRef = ref<{ move: (d: number) => boolean; activate: () => boolean;
 const gridRef = ref<{
   move: (dx: number, dy: number) => boolean;
   activate: () => boolean;
+  launch: () => boolean;
+  openDetail: () => boolean;
+  favorite: () => boolean;
   reset: (startKey?: string) => void;
 } | null>(null);
 const uninstalling = ref(false);
@@ -166,12 +169,25 @@ async function activate() {
   if (overlayOpen.value) return;
   const game = lib.selected;
   if (!game) return;
+  await startGame(game);
+}
+
+/**
+ * startGame 是「真的要启动一部」的唯一入口：首页和网格都走它。
+ *
+ * onLaunched 只在启动真的成功之后调 —— 网格靠它在成功后收起自己。
+ * 失败时要留在原地（网格里就继续待在网格里），不能先把人挑走再报错，
+ * 那看起来就像「按一下 Enter 就莫名回了首页」。
+ */
+async function startGame(game: { key: string; title: string }, onLaunched?: () => void) {
+  if (!game.key || launching.value) return;
 
   sfx.confirm();
   launching.value = { title: game.title, status: "starting" };
   try {
     await Launcher.launch(game.key);
-    // 启动成功就先让「正在启动」停一下：Steam 抢焦点后这个窗口自然会退到后面。
+    onLaunched?.();
+    // 启动成功就先让「正在启动」停一下：游戏客户端抢焦点后这个窗口自然会退到后面。
     window.setTimeout(() => {
       if (launching.value?.status === "starting") launching.value = null;
     }, 1500);
@@ -285,8 +301,45 @@ function pickFromGrid(key: string) {
   lib.focusKey(key);
 }
 
+/**
+ * 网格里直接启动。
+ *
+ * 网格**不先关**：启动失败（演示数据、文件被删、客户端没装）时人就该待在原地
+ * 看清原因，而不是先被挑回首页再报错 —— 那看起来就像「按 Enter 就回首页」。
+ * 只有真的启动成功了才收起网格（startGame 的 onLaunched）。
+ */
+async function launchFromGrid(key: string) {
+  const game = lib.games.find((g) => g.key === key) ?? lib.selected;
+  if (!game) return;
+  lib.focusKey(key);
+  await startGame(game, () => {
+    gridOpen.value = false;
+  });
+}
+
+/** 网格里看详情：确实能开才收起网格（没选中就留在原位）。 */
+function detailFromGrid(key: string) {
+  lib.focusKey(key);
+  if (!lib.selected) return;
+  gridOpen.value = false;
+  openDetail();
+}
+
+/** 网格里收藏：光标不离开网格，星标就地亮起来。 */
+function favoriteFromGrid(key: string) {
+  if (lib.toggleFavorite(key)) sfx.confirm();
+}
+
+/** 搜索结果的落点：网格开着就挪网格光标，否则换首页焦点。 */
+function pickFromSearch(key: string) {
+  if (gridOpen.value) gridRef.value?.reset(key);
+  else lib.focusKey(key);
+}
+
 function openSearch() {
-  if (overlayOpen.value) return;
+  // 网格里也能搜：它是一整页，不该比首页少东西。
+  // 只有真正叠在上面的东西（启动浮层 / 详情）才拦。
+  if (launching.value || detailOpen.value) return;
   sfx.confirm();
   searchOpen.value = true;
 }
@@ -298,7 +351,9 @@ function closeSearch() {
 }
 
 function openSettings() {
-  if (overlayOpen.value) return;
+  // 同上：网格里按 S / Menu 也要能开设置，拦的只是更上层的浮层
+  if (launching.value || detailOpen.value) return;
+  if (settingsOpen.value) return;
   sfx.confirm();
   settingsOpen.value = true;
   settingsRef.value?.reset();
@@ -378,17 +433,26 @@ function onPadIntent(intent: PadIntent) {
   usingPad.value = true;
   document.body.classList.add("using-pad");
 
-  // 网格模式：方向键在网格里走，A 选中，B 关闭
-  if (gridOpen.value) {
+  // 层次从「最上面那层」往下判：启动浮层 → 设置 → 搜索 → 网格 → 详情/首页。
+  // 这个顺序就是 z-index 的顺序，不能反过来（否则网格会把设置面板的按键吃掉）
+
+  // 启动浮层是模态：只认「关掉它」
+  if (launching.value) {
+    if (intent.kind === "button" && (intent.button === "east" || intent.button === "south")) {
+      launching.value = null;
+    }
+    return;
+  }
+
+  if (settingsOpen.value) {
     if (intent.kind === "nav") {
-      const dx = intent.dir === "left" ? -1 : intent.dir === "right" ? 1 : 0;
-      const dy = intent.dir === "up" ? -1 : intent.dir === "down" ? 1 : 0;
-      if (gridRef.value?.move(dx, dy)) sfx.move();
+      if (intent.dir === "up" || intent.dir === "left") settingsRef.value?.move(-1);
+      else settingsRef.value?.move(1);
       return;
     }
     if (intent.kind === "button") {
-      if (intent.button === "south") gridRef.value?.activate();
-      else if (intent.button === "east") closeGrid();
+      if (intent.button === "south") settingsRef.value?.activate();
+      else if (intent.button === "east" || intent.button === "start") settingsOpen.value = false;
     }
     return;
   }
@@ -399,13 +463,26 @@ function onPadIntent(intent: PadIntent) {
     return;
   }
 
-  if (intent.kind === "nav") {
-    // 面板打开时上下（设置里再加左右）在面板内部移动焦点；左右在详情页留给卡片带
-    if (settingsOpen.value) {
-      if (intent.dir === "up" || intent.dir === "left") settingsRef.value?.move(-1);
-      else settingsRef.value?.move(1);
+  // 网格：方向键走格子，A 启动、Y 详情、X 收藏、Menu 设置、B 关闭
+  if (gridOpen.value) {
+    if (intent.kind === "nav") {
+      const dx = intent.dir === "left" ? -1 : intent.dir === "right" ? 1 : 0;
+      const dy = intent.dir === "up" ? -1 : intent.dir === "down" ? 1 : 0;
+      if (gridRef.value?.move(dx, dy)) sfx.move();
       return;
     }
+    if (intent.kind === "button") {
+      if (intent.button === "south") gridRef.value?.launch();
+      else if (intent.button === "north") gridRef.value?.openDetail();
+      else if (intent.button === "west") gridRef.value?.favorite();
+      else if (intent.button === "start") openSettings();
+      else if (intent.button === "east") closeGrid();
+    }
+    return;
+  }
+
+  if (intent.kind === "nav") {
+    // 详情里上下在面板内部选按钮，左右留给卡片带
     if (detailOpen.value) {
       if (!uninstallAsk.value && (intent.dir === "up" || intent.dir === "down")) {
         if (detailRef.value?.move(intent.dir === "up" ? -1 : 1)) sfx.move();
@@ -417,6 +494,9 @@ function onPadIntent(intent: PadIntent) {
     }
     if (intent.dir === "left") move(-1);
     else if (intent.dir === "right") move(1);
+    // 首页上方向：和键盘 ↑ 一样开详情（网格里上方向要留给自己移动，
+    // 那边走 Y / △ —— 两边都一样的是「Y 键就是详情」）
+    else if (intent.dir === "up") openDetail();
     return;
   }
 
@@ -424,7 +504,6 @@ function onPadIntent(intent: PadIntent) {
     case "south":
       // 面板打开时确认的是「当前焦点的那个按钮」，不是无脑启动
       if (uninstallAsk.value) void confirmDestructive();
-      else if (settingsOpen.value) settingsRef.value?.activate();
       else if (detailOpen.value) detailRef.value?.activate();
       else void activate();
       break;
@@ -464,50 +543,19 @@ function onKeydown(e: KeyboardEvent) {
   usingPad.value = false;
   document.body.classList.remove("using-pad");
 
-  // 网格是全屏模态：方向键在网格内移动，Enter 选中，Esc/G 退出
-  if (gridOpen.value) {
-    const handled = (() => {
-      switch (e.key) {
-        case "ArrowLeft":
-          return gridRef.value?.move(-1, 0) ?? false;
-        case "ArrowRight":
-          return gridRef.value?.move(1, 0) ?? false;
-        case "ArrowUp":
-          return gridRef.value?.move(0, -1) ?? false;
-        case "ArrowDown":
-          return gridRef.value?.move(0, 1) ?? false;
-        case "Enter":
-        case " ":
-          return gridRef.value?.activate() ?? false;
-        case "Escape":
-        case "Backspace":
-        case "g":
-        case "G":
-          closeGrid();
-          return true;
-        default:
-          return false;
-      }
-    })();
-    if (handled) {
+  // 层次跟 z-index 一致，从最上那层往下判：
+  // 启动浮层 → 设置 → 搜索 → 网格 → 详情 → 首页。
+
+  // 启动浮层：只认「关掉它」，别让按键漏到下面的网格/首页
+  if (launching.value) {
+    if (["Escape", "Backspace", "Enter", " "].includes(e.key)) {
       e.preventDefault();
-      sfx.move();
+      launching.value = null;
     }
     return;
   }
 
-  // 搜索框自己处理输入：这里只兜住「怎么退出」，别抢方向键
-  if (searchOpen.value) {
-    if (e.key === "Escape" || e.key === "Enter") {
-      e.preventDefault();
-      closeSearch();
-    }
-    return;
-  }
-
-  // 详情页是一整页内容，键盘操作按页面语义走：
-  // Enter 启动、X 收藏、Esc 返回。
-  // 设置是个模态面板：所有导航键都归它，别漏到底下的首页
+  // 设置是个模态面板：所有导航键都归它，别漏到底下的页面
   if (settingsOpen.value) {
     switch (e.key) {
       case "ArrowUp":
@@ -527,12 +575,86 @@ function onKeydown(e: KeyboardEvent) {
         break;
       case "Escape":
       case "Backspace":
+      case "s":
+      case "S":
         e.preventDefault();
-        back();
+        settingsOpen.value = false;
+        break;
+    }
+    return;
+  }
+
+  // 搜索框自己处理输入：这里只兜住「怎么退出」，别抢方向键
+  if (searchOpen.value) {
+    if (e.key === "Escape" || e.key === "Enter") {
+      e.preventDefault();
+      closeSearch();
+    }
+    return;
+  }
+
+  // 网格是一整页：键位与首页同一套（启动 / 详情 / 收藏 / 设置 / 搜索 / 全屏 / 刷新），
+  // 只多一个「移动」和「关闭」，少一个「全部游戏」（网格里 G 就是关闭）。
+  if (gridOpen.value) {
+    const step = (dx: number, dy: number) => {
+      if (!gridRef.value?.move(dx, dy)) return;
+      e.preventDefault();
+      sfx.move(); // 只有「移动」用这个音，动作键各自发自己的声音
+    };
+
+    switch (e.key) {
+      case "ArrowLeft":
+        step(-1, 0);
+        break;
+      case "ArrowRight":
+        step(1, 0);
+        break;
+      case "ArrowUp":
+        step(0, -1);
+        break;
+      case "ArrowDown":
+        step(0, 1);
+        break;
+      case "Enter":
+      case " ":
+        e.preventDefault();
+        gridRef.value?.launch();
+        break;
+      case "y":
+      case "Y":
+        e.preventDefault();
+        gridRef.value?.openDetail();
+        break;
+      case "x":
+      case "X":
+        e.preventDefault();
+        gridRef.value?.favorite();
         break;
       case "s":
       case "S":
-        back();
+        e.preventDefault();
+        openSettings();
+        break;
+      case "/":
+        e.preventDefault();
+        openSearch();
+        break;
+      case "f":
+      case "F":
+        e.preventDefault();
+        void toggleFullScreen();
+        break;
+      case "r":
+      case "R":
+        e.preventDefault();
+        void rescan();
+        break;
+      case "Escape":
+      case "Backspace":
+      case "g":
+      case "G":
+        e.preventDefault();
+        closeGrid();
         break;
     }
     return;
@@ -609,6 +731,10 @@ function onKeydown(e: KeyboardEvent) {
       back();
       break;
     case "ArrowUp":
+    case "y":
+    case "Y":
+      // 详情：Y 是手柄 Y / △ 的对位键，↑ 是首页额外送的顺手键。
+      // 网格里 ↑ 被移动占着，只能走 Y；两边都认 Y 才是一致的。
       e.preventDefault();
       openDetail();
       break;
@@ -810,33 +936,6 @@ onUnmounted(() => {
       @cancel-uninstall="cancelUninstall"
     />
 
-    <SearchBar
-      v-if="searchOpen"
-      :games="lib.games"
-      @pick="lib.focusKey"
-      @close="closeSearch"
-    />
-
-    <Transition name="toast">
-      <p v-if="toast" class="toast">{{ toast }}</p>
-    </Transition>
-
-    <SettingsSheet
-      ref="settingsRef"
-      :open="settingsOpen"
-      @close="settingsOpen = false"
-      @rescan="rescan"
-      @toggle-fullscreen="toggleFullScreen"
-      @added="showToast('已添加 1 部游戏（手动添加的排在库里最前面）')"
-      @failed="showToast"
-    />
-    <LaunchOverlay
-      v-if="launching"
-      :title="launching.title"
-      :status="launching.status"
-      :message="launching.message"
-      @close="launching = null"
-    />
     </div>
 
     <LibraryGrid
@@ -849,12 +948,49 @@ onUnmounted(() => {
       @close="closeGrid"
       @focus="lib.focusKey"
       @select="pickFromGrid"
+      @launch="launchFromGrid"
+      @detail="detailFromGrid"
+      @favorite="favoriteFromGrid"
+    />
+
+    <!-- 下面这三层提到 .app 根上：首页和网格都要用。
+         以前它们挂在 .home 里（`v-show="!gridOpen"`），网格一开就整个被藏起来，
+         于是「网格里按 S / / 没反应」「保存成功的 toast 看不见」都是同一个原因。 -->
+    <SearchBar
+      v-if="searchOpen"
+      :games="lib.games"
+      @pick="pickFromSearch"
+      @close="closeSearch"
+    />
+
+    <SettingsSheet
+      ref="settingsRef"
+      :open="settingsOpen"
+      @close="settingsOpen = false"
+      @rescan="rescan"
+      @toggle-fullscreen="toggleFullScreen"
+      @added="showToast('已添加 1 部游戏（手动添加的排在库里最前面）')"
+      @failed="showToast"
+    />
+
+    <Transition name="toast">
+      <p v-if="toast" class="toast">{{ toast }}</p>
+    </Transition>
+
+    <!-- 启动浮层放在最外层：网格里按 Enter 也要能看到它，
+         启动失败时人就该待在网格里，而不是被甩回首页 -->
+    <LaunchOverlay
+      v-if="launching"
+      :title="launching.title"
+      :status="launching.status"
+      :message="launching.message"
+      @close="launching = null"
     />
 
     <HintBar
       :pad="usingPad"
       :kind="padKind"
-      :context="gridOpen ? 'grid' : settingsOpen ? 'settings' : detailOpen ? 'detail' : 'home'"
+      :context="settingsOpen ? 'settings' : gridOpen ? 'grid' : detailOpen ? 'detail' : 'home'"
     />
 
   </div>

@@ -36,7 +36,10 @@ const hints = computed<Hint[]>(() => {
     if (context.value === "grid") {
       return [
         { cap: "↑↓←→", label: "移动" },
-        { cap: g.confirm.text, tone: g.confirm.tone, label: "选中" },
+        { cap: g.confirm.text, tone: g.confirm.tone, label: "启动" },
+        { cap: g.detail.text, tone: g.detail.tone, label: "详情" },
+        { cap: g.favorite.text, tone: g.favorite.tone, label: "收藏" },
+        { cap: g.menu, tone: "pill", label: "设置" },
         { cap: g.back.text, tone: g.back.tone, label: "关闭" },
       ];
     }
@@ -64,10 +67,17 @@ const hints = computed<Hint[]>(() => {
   }
 
   // 键盘
+  // 顺序和首页一致：导航 → 启动 → 详情 → 收藏 → 设置 → 搜索 → 其余 → 关闭
   if (context.value === "grid") {
     return [
       { cap: "↑↓←→", label: "移动" },
-      { cap: "Enter", label: "选中" },
+      { cap: "Enter", label: "启动" },
+      { cap: "Y", label: "详情" },
+      { cap: "X", label: "收藏" },
+      { cap: "S", label: "设置" },
+      { cap: "/", label: "搜索" },
+      { cap: "F", label: "全屏" },
+      { cap: "R", label: "刷新" },
       { cap: "Esc", label: "关闭" },
     ];
   }
@@ -88,10 +98,12 @@ const hints = computed<Hint[]>(() => {
       { cap: "Esc", label: "返回" },
     ];
   }
+  // 顺序：导航 → 启动 → 详情 → 收藏 → 设置 → 搜索 → 全部游戏 → 全屏 → 刷新
   return [
     { cap: "←→", label: "选择" },
-    { cap: "↑", label: "详情" },
     { cap: "Enter", label: "启动" },
+    // 详情用 Y：和手柄 Y / △ 对位，也和「全部游戏」里的 Y 一致（↑ 也认，但不占位置）
+    { cap: "Y", label: "详情" },
     { cap: "X", label: "收藏" },
     { cap: "S", label: "设置" },
     { cap: "/", label: "搜索" },
