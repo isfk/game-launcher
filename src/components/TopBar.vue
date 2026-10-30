@@ -1,16 +1,22 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useClock } from "../composables/useClock";
+import ProviderIcon from "./ProviderIcon.vue";
 
 const props = defineProps<{ source: string; count: number }>();
 
 const clock = useClock();
 
-/** 后端的 source 可能是多平台拼起来的（"steam+epic"），这里翻成人话。 */
+/** source 可能是多平台拼起来的（"steam+epic+wegame"），拆开逐个显示图标。 */
+const sources = computed(() =>
+  props.source === "demo" || !props.source ? [] : props.source.split("+").filter(Boolean),
+);
+
+/** 后端的 source 是多平台拼起来的，这里翻成人话。 */
 const label = computed(() => {
   if (props.source === "demo" || !props.source) return "演示数据";
-  const names: Record<string, string> = { steam: "Steam", epic: "Epic", manual: "手动添加" };
-  const parts = props.source.split("+").map((id) => names[id] ?? id);
+  const names: Record<string, string> = { steam: "Steam", epic: "Epic", wegame: "WeGame", manual: "手动添加" };
+  const parts = sources.value.map((id) => names[id] ?? id);
   return `${parts.join(" + ")} · ${props.count} 部`;
 });
 
@@ -21,7 +27,10 @@ const ok = computed(() => props.source !== "demo" && !!props.source);
 <template>
   <header class="topbar">
     <div class="chip">
-      <span class="dot" :class="ok ? 'ok' : 'warn'" />
+      <span class="icons">
+        <ProviderIcon v-for="id in sources" :key="id" :provider="id" size="1.05em" />
+        <span v-if="!sources.length" class="dot" :class="ok ? 'ok' : 'warn'" />
+      </span>
       <span>{{ label }}</span>
     </div>
     <div class="who">
@@ -55,6 +64,12 @@ const ok = computed(() => props.source !== "demo" && !!props.source);
   border-radius: 999px;
   background: rgba(255, 255, 255, 0.06);
   border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.icons {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.22em;
 }
 
 .dot {

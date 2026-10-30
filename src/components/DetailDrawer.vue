@@ -10,6 +10,7 @@ import {
   providerLabel,
 } from "../lib/format";
 import { glyphsFor } from "../lib/glyphs";
+import ProviderIcon from "./ProviderIcon.vue";
 import type { Game } from "../mygo";
 import PanelShell from "./PanelShell.vue";
 
@@ -144,7 +145,10 @@ function shortenPath(path: string, head = 14, tail = 22): string {
       </div>
 
       <div class="content">
-        <p class="eyebrow">{{ eyebrow }}</p>
+        <p class="eyebrow">
+          <ProviderIcon :provider="game?.provider ?? 'demo'" size="1.1em" />
+          <span>{{ eyebrow }}</span>
+        </p>
 
         <dl v-if="trio.length" class="trio">
           <div v-for="item in trio" :key="item.label">
@@ -331,6 +335,9 @@ function shortenPath(path: string, head = 14, tail = 22): string {
 }
 
 .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 0.4em;
   margin: 0 0 1rem;
   font-size: 0.7rem;
   letter-spacing: 0.16em;

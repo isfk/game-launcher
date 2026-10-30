@@ -24,9 +24,13 @@ type Game struct {
 	Title    string `json:"title"`
 	Provider string `json:"provider"` // steam | manual | demo
 	// AppID 是 Steam 的 appid，手动添加的游戏为空。
-	AppID      string  `json:"appId,omitempty"`
-	InstallDir string  `json:"installDir,omitempty"`
-	Artwork    Artwork `json:"artwork"`
+	AppID      string `json:"appId,omitempty"`
+	InstallDir string `json:"installDir,omitempty"`
+	// Exec 是「直接跑这个可执行文件」的路径。只有不走客户端协议的平台才用得上
+	// （WeGame 没有稳定协议，手动添加的游戏也是直接开文件）。
+	// 不发给页面：界面不需要知道路径，也就不该拿到。
+	Exec    string  `json:"-"`
+	Artwork Artwork `json:"artwork"`
 	// Accent 是从封面取的主色（#rrggbb），界面用它做背景渐变；空则由前端兜底。
 	Accent    string `json:"accent,omitempty"`
 	SizeBytes int64  `json:"sizeBytes,omitempty"`

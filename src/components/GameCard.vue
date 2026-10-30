@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { accentOf, providerLabel, vivid } from "../lib/format";
+import ProviderIcon from "./ProviderIcon.vue";
 import type { Game } from "../mygo";
 
 const props = defineProps<{
@@ -45,7 +46,10 @@ const badge = computed(() => providerLabel(props.game.provider));
 
     <div class="label">
       <span class="name">{{ game.title }}</span>
-      <span class="provider">{{ badge }}</span>
+      <span class="provider">
+        <ProviderIcon :provider="game.provider" />
+        {{ badge }}
+      </span>
     </div>
 
     <span v-if="favorite" class="star" title="已收藏">★</span>
@@ -141,6 +145,9 @@ const badge = computed(() => providerLabel(props.game.provider));
 }
 
 .provider {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.32em;
   font-size: 0.68rem;
   letter-spacing: 0.04em;
   color: var(--faint);

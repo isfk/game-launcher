@@ -28,6 +28,8 @@ export function providerLabel(provider: string): string {
       return "Steam";
     case "epic":
       return "Epic";
+    case "wegame":
+      return "WeGame";
     case "manual":
       return "手动添加";
     case "demo":

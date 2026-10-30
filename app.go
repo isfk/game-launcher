@@ -25,6 +25,7 @@ import (
 	"game-launcher/internal/proc"
 	"game-launcher/internal/steam"
 	"game-launcher/internal/storeart"
+	"game-launcher/internal/wegame"
 )
 
 // artStore 把本地的封面文件变成页面能加载的 URL（见 internal/asset）。
@@ -432,12 +433,13 @@ func providers() []library.Provider {
 	return []library.Provider{
 		steam.Provider{},
 		epic.Provider{},
+		wegame.Provider{},
 	}
 }
 
 // librarySignature 把各平台的库指纹拼起来，供后台轮询判断要不要重扫。
 func librarySignature() string {
-	return steam.Signature() + "|epic|" + epic.SignatureNow()
+	return steam.Signature() + "|epic|" + epic.SignatureNow() + "|wegame|" + wegame.SignatureNow()
 }
 
 // WatchLibrary 每 5 秒给 Steam 库拍一次指纹，一变就重扫并广播 LibraryChanged。
@@ -763,7 +765,11 @@ func (l *Launcher) result() LibraryResult {
 		roots = append([]string{env}, roots...)
 	}
 	roots = append(roots, epic.DefaultRoots()...)
+	roots = append(roots, wegame.DefaultRoots()...)
 	if env := epic.RootFromEnv(); env != "" {
+		roots = append([]string{env}, roots...)
+	}
+	if env := wegame.RootFromEnv(); env != "" {
 		roots = append([]string{env}, roots...)
 	}
 	return LibraryResult{
@@ -830,6 +836,16 @@ func (l *Launcher) launchGame(ctx context.Context, game library.Game) (string, e
 		// 走 openURL 这层间接（而不是 epic.Provider.Launch 里的 launch.OpenURL），
 		// 测试才能替换掉「真的去开协议」这一步
 		if err := openURL(ctx, epic.LaunchURL(game.AppID)); err != nil {
+			return "", err
+		}
+		l.watchAfterLaunch(game)
+		return game.Title, nil
+	case "wegame":
+		// WeGame 没有稳定的启动协议，直接跑扫描时找到的主程序
+		if game.Exec == "" {
+			return "", fmt.Errorf("「%s」没找到可执行文件，先在 WeGame 里启动一次", game.Title)
+		}
+		if err := openURL(ctx, game.Exec); err != nil {
 			return "", err
 		}
 		l.watchAfterLaunch(game)
@@ -922,6 +938,8 @@ func (l *Launcher) Uninstall(ctx context.Context, key string) (string, error) {
 			return "", err
 		}
 		return game.Title, nil
+	case "wegame":
+		return "", fmt.Errorf("「%s」由 WeGame 管理，请在 WeGame 客户端里卸载", game.Title)
 	case "manual":
 		return "", fmt.Errorf("「%s」是手动添加的，只能用「移除」（不会删除磁盘上的文件）", game.Title)
 	case "demo":

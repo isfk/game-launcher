@@ -485,6 +485,41 @@ com.epicgames.launcher://apps/<AppName>?action=uninstall&silent=true
 提示条也跟着改：首页不再显示「B 返回 / Esc 返回」（那两下现在什么也不做），
 详情和设置里还保留「收起 / 返回」。
 
+## 4.39 WeGame Provider（`internal/wegame`）
+
+WeGame 没有公开清单格式（不像 Steam 的 appmanifest、Epic 的 `.item`），
+它把游戏直接铺在 `rail_apps` 目录下：**一个子目录 = 一款游戏**。
+所以这里只能靠目录结构推断，规则都写在 `pickExec` 里。
+
+**目录**：`%ProgramFiles(x86)%\WeGame\rail_apps`、`%ProgramFiles%\WeGame\rail_apps`、
+`%ProgramFiles%\Tencent\WeGame\rail_apps`（可用 `LAUNCHER_WEGAME_DIR` 覆盖；
+非 Windows 直接返回空，WeGame 只有 Windows 客户端）。
+
+**过滤**：`rail_apps` 里躺的不只有游戏，还有 WeGame 自己的组件目录
+（`wegame` / `tgp` / `tenio` / `plugins` / `redist` / `directx` / `download` …），
+这些都跳过；没有 `.exe` 的目录也跳过（还没下载完）。
+
+**挑主程序**（`pickExec`）：
+
+1. 目录树里找 `.exe`，深度不超过 3 层（够覆盖 `bin/`、`Binaries/Win64/`）
+2. 跳过卸载器/安装包/上报器（`unins*`、`vcredist*`、`dxsetup`、`crash*` …）
+3. 与目录同名的优先（`LOL\LOL.exe` 这种最常见）
+4. 其次路径最浅，最后体积最大
+
+**启动**：直接跑找到的 exe（`Game.Exec`，`json:"-"` 不发给页面）。
+WeGame 的 `tencent://` 协议需要它内部的游戏 id，没有稳定来源，拼错只会静默失败。
+
+**卸载**：不支持——由 WeGame 客户端管理，详情面板不显示卸载按钮，
+误调 `Uninstall` 会提示「请在 WeGame 客户端里卸载」。
+
+## 4.40 provider 彩色图标
+
+`src/components/ProviderIcon.vue` 在卡片角标、详情 eyebrow、顶栏来源处各显示一个小图标。
+
+图标文件放 `src/assets/providers/<provider>.svg|png|webp`，组件用
+`import.meta.glob(..., { eager: true, query: "?url" })` 扫出来：
+**加文件即生效**，不用改代码；目录里没有对应文件时退回手写的内联 SVG 兜底。
+
 ## 4.35 层级（z-index）
 
 全应用只从 `style.css` 的层级表取，别写裸数字：
@@ -609,7 +644,7 @@ go run scripts/genicon/main.go -out resources/icon.png
 | **M2** | 详情页竖向导航 ✅、设置持久化到 Go ✅、虚拟手柄 E2E（待办） | 进行中 |
 | **M3** | 手动添加游戏 ✅（`Dialog.Open` 选 exe/app）、移除 ✅、搜索 ✅、收藏置顶 ✅ | ✅ 完成 |
 | **M4** | `mygo build -platform windows/amd64` ✅、图标 ✅、全屏盖任务栏保险 ✅、NSIS 安装包（待定：需 makensis）、Windows 真机验收 | 进行中 |
-| **M5** | Epic Provider ✅、WeGame | 进行中 |
+| **M5** | Epic Provider ✅、WeGame Provider ✅ | ✅ 完成 |
 
 ---
 
