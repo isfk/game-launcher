@@ -642,19 +642,46 @@ function stepPlatform(dir: number): boolean {
   return true;
 }
 
-/** activate 选中当前这部并把焦点带回首页（移动模式下 = 完成，tab 行 = 切平台）。 */
+/**
+ * focusedGame 只在这块屏幕上真的有一张卡被选中时才返回它。
+ *
+ * 焦点跑到平台那行时，卡片的焦点环是灭的 —— 那就不算选中任何东西。
+ * 这时候按 Enter / Y / X 还去动「上一次光标停的那部」，玩家会觉得
+ * 自己按了个不该有反应的东西。
+ */
+function focusedGame(): Game | null {
+  if (moving.value || zone.value !== "cards") return null;
+  return props.games[cursor.value] ?? null;
+}
+
+/** applyTab 让焦点所在的那颗平台胶囊生效，并把光标落到第一部。 */
+function applyTab() {
+  const item = lib.providerCounts[tabIndex.value];
+  if (!item) return;
+  lib.setPlatformFilter(item.id);
+  cursor.value = 0;
+}
+
+/**
+ * confirmTab 平台行上的「确认」：应用筛选、选中第一部、焦点回到卡片区。
+ *
+ * 没有这一步的话，站在平台行按确认会去启动「上一次光标停的那部」——
+ * 屏幕上根本没有卡片高亮，玩家会觉得按到了不存在的东西。
+ */
+function confirmTab(): boolean {
+  if (!lib.providerCounts.length) return false;
+  applyTab();
+  zone.value = "cards";
+  return true;
+}
+
+/** activate 选中当前这部并把焦点带回首页（移动模式下 = 完成）。 */
 function activate(): boolean {
   if (moving.value) return finishMove();
 
-  if (zone.value === "tabs") {
-    const item = lib.providerCounts[tabIndex.value];
-    if (!item) return false;
-    lib.setPlatformFilter(item.id); // 再按一次同一颗 = 取消筛选
-    cursor.value = 0;
-    return true;
-  }
+  if (zone.value === "tabs") return confirmTab();
 
-  const game = props.games[cursor.value];
+  const game = focusedGame();
   if (!game) return false;
   emit("select", game.key);
   return true;
@@ -667,21 +694,24 @@ function activate(): boolean {
  * 这三下就是首页那三下（A 启动 / Y 详情 / X 收藏），只是光标在网格里。
  */
 function launch(): boolean {
-  const game = props.games[cursor.value];
+  // 站在平台行上没有选中卡片：确认键落到「选中第一部」上，不去开旧的游戏
+  if (zone.value === "tabs") return confirmTab();
+
+  const game = focusedGame();
   if (!game) return false;
   emit("launch", game.key);
   return true;
 }
 
 function openDetail(): boolean {
-  const game = props.games[cursor.value];
+  const game = focusedGame();
   if (!game) return false;
   emit("detail", game.key);
   return true;
 }
 
 function favorite(): boolean {
-  const game = props.games[cursor.value];
+  const game = focusedGame();
   if (!game) return false;
   emit("favorite", game.key);
   return true;
