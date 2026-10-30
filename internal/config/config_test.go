@@ -121,3 +121,45 @@ func TestLoadUnknownFieldsIgnored(t *testing.T) {
 		t.Error("文件里是 false，读出来不该是 true")
 	}
 }
+
+// TestIconPosDefaultsAndNormalizes 覆盖图标位置：老配置里没有这个字段时
+// 必须回落到「左下（与游戏名同一行）」，并且手改坏的值也能被收敛。
+func TestIconPosDefaultsAndNormalizes(t *testing.T) {
+	if got := Default().IconPos; got != IconPosBottomLeft {
+		t.Errorf("默认图标位置 = %q，期望 %q", got, IconPosBottomLeft)
+	}
+
+	cases := map[string]string{
+		"tl": IconPosTopLeft,
+		"tr": IconPosTopRight,
+		"br": IconPosBottomRight,
+		"bl": IconPosBottomLeft,
+		"":   IconPosBottomLeft,
+		"??": IconPosBottomLeft, // 手改坏的值
+		"TL": IconPosBottomLeft, // 大小写不认，收敛到默认
+	}
+	for in, want := range cases {
+		if got := NormalizeIconPos(in); got != want {
+			t.Errorf("NormalizeIconPos(%q) = %q，期望 %q", in, got, want)
+		}
+	}
+}
+
+// TestIconPosPersists 确认图标位置会落盘并在下次读出来。
+func TestIconPosPersists(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	s := Default()
+	s.IconPos = IconPosTopRight
+	if err := store.Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	again, err := NewStore(dir).Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if again.IconPos != IconPosTopRight {
+		t.Errorf("读回来的图标位置 = %q，期望 %q", again.IconPos, IconPosTopRight)
+	}
+}

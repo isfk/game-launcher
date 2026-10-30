@@ -62,9 +62,25 @@ const nav = usePanelNav(() => [
   { key: "fullscreen", activate: () => emit("toggleFullscreen") },
   { key: "add", activate: () => void addGame() },
   { key: "rescan", activate: () => emit("rescan") },
+  { key: "iconpos", activate: () => void cycleIcon() },
   { key: "sound", activate: () => toggleSound() },
   { key: "quit", activate: () => void Launcher.quit() },
 ]);
+
+/** 位置的显示文案：就是四个词，和卡片上的四个角一一对应。 */
+const ICON_POS_LABEL: Record<string, string> = {
+  tl: "左上",
+  tr: "右上",
+  bl: "左下",
+  br: "右下",
+};
+const iconPosLabel = computed(() => ICON_POS_LABEL[lib.iconPos] ?? "左下");
+
+/** cycleIcon 依次切换四个角，切一下给个短反馈。 */
+function cycleIcon() {
+  sfx.move();
+  void lib.cycleIconPos();
+}
 
 defineExpose({ move: nav.move, activate: nav.activate, reset: nav.reset, isFocused: nav.isFocused });
 
@@ -143,8 +159,23 @@ function toggleSound() {
             <span class="label">重新扫描游戏库</span>
             <span class="desc">重新读取 Steam 的 libraryfolders.vdf 与 appmanifest</span>
           </div>
-          <button class="btn" :class="{ focused: nav.isFocused('rescan') }" @mouseenter="nav.focusTo(1)" @click="$emit('rescan')">
+          <button class="btn" :class="{ focused: nav.isFocused('rescan') }" @mouseenter="nav.focusTo(2)" @click="$emit('rescan')">
             扫描
+          </button>
+        </li>
+
+        <li>
+          <div>
+            <span class="label">平台图标位置</span>
+            <span class="desc">点击或 Enter 切换</span>
+          </div>
+          <button
+            class="btn"
+            :class="{ focused: nav.isFocused('iconpos') }"
+            @mouseenter="nav.focusTo(3)"
+            @click="cycleIcon"
+          >
+            {{ iconPosLabel }}
           </button>
         </li>
 
@@ -153,7 +184,7 @@ function toggleSound() {
             <span class="label">界面音效</span>
             <span class="desc">{{ sound ? "开" : "关" }}</span>
           </div>
-          <button class="btn" :class="{ focused: nav.isFocused('sound') }" @mouseenter="nav.focusTo(3)" @click="toggleSound">
+          <button class="btn" :class="{ focused: nav.isFocused('sound') }" @mouseenter="nav.focusTo(4)" @click="toggleSound">
             {{ sound ? "关闭" : "打开" }}
           </button>
         </li>
@@ -173,7 +204,7 @@ function toggleSound() {
           <button
             class="btn danger"
             :class="{ focused: nav.isFocused('quit') }"
-            @mouseenter="nav.focusTo(4)"
+            @mouseenter="nav.focusTo(5)"
             @click="Launcher.quit()"
           >
             退出

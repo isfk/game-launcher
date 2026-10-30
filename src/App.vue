@@ -637,6 +637,7 @@ onUnmounted(() => {
           :game="game"
           :focused="i === lib.index"
           :favorite="lib.favorites.has(game.key)"
+          :icon-pos="lib.iconPos"
           @pick="lib.focusKey(game.key)"
           @activate="activate"
         />

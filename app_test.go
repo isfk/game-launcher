@@ -690,3 +690,32 @@ func TestUninstallEpicUsesProtocol(t *testing.T) {
 		t.Errorf("打开的 URL = %q，期望 %q", gotTarget, want)
 	}
 }
+
+// TestSetIconPosValidates 覆盖图标位置的落盘与校验：
+// 传什么都要收敛到四个合法值之一，坏值回默认。
+func TestSetIconPosValidates(t *testing.T) {
+	l := &Launcher{}
+	l.setConfig(config.NewStore(t.TempDir()))
+
+	if got := l.Settings().IconPos; got != config.IconPosBottomLeft {
+		t.Errorf("默认图标位置 = %q，期望左下", got)
+	}
+
+	for _, pos := range []string{"tl", "tr", "br"} {
+		s, err := l.SetIconPos(pos)
+		if err != nil {
+			t.Fatalf("SetIconPos(%q): %v", pos, err)
+		}
+		if s.IconPos != pos {
+			t.Errorf("SetIconPos(%q) → %q", pos, s.IconPos)
+		}
+	}
+
+	s, err := l.SetIconPos("随便写的")
+	if err != nil {
+		t.Fatalf("坏值不该报错: %v", err)
+	}
+	if s.IconPos != config.IconPosBottomLeft {
+		t.Errorf("坏值应该回落到左下，实际 %q", s.IconPos)
+	}
+}

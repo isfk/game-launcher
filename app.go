@@ -173,6 +173,15 @@ func (l *Launcher) SetSoundEnabled(enabled bool) (config.Settings, error) {
 	return l.saveSettings(next)
 }
 
+// SetIconPos 改卡片上平台图标的位置（tl / tr / bl / br）。
+func (l *Launcher) SetIconPos(pos string) (config.Settings, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	next := l.settingsNow()
+	next.IconPos = config.NormalizeIconPos(pos)
+	return l.saveSettings(next)
+}
+
 // SetFavorite 记住 / 取消一部游戏的收藏。
 //
 // 收藏只跟 key 有关，不需要游戏还在库里 —— 卸载了再装回来，

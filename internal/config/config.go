@@ -25,6 +25,9 @@ type Settings struct {
 	// ManualGames 是手动添加的游戏。它们的 key 由路径算出（见 internal/manual），
 	// 所以文件被挪走之后这条记录会「指向不存在的路径」，加载时跳过即可。
 	ManualGames []ManualGame `json:"manualGames,omitempty"`
+	// IconPos 是卡片上平台图标的位置：tl / tr / bl / br。
+	// bl 是「和游戏名同一行」，也是默认值。老配置没有这个字段时用默认值补。
+	IconPos string `json:"iconPos,omitempty"`
 }
 
 // ManualGame 是一条手动添加的记录：只要路径和显示名，没有平台信息。
@@ -36,8 +39,27 @@ type ManualGame struct {
 }
 
 // Default 是「第一次启动」的设置：音效开着，没有收藏。
+// 图标位置的合法取值。bl = 和游戏名同一行（默认）。
+const (
+	IconPosTopLeft     = "tl"
+	IconPosTopRight    = "tr"
+	IconPosBottomLeft  = "bl"
+	IconPosBottomRight = "br"
+)
+
+// NormalizeIconPos 把任意输入收敛到合法取值，不认识的一律回默认（左下）。
+// 好处是手改坏的 settings.json 不会让界面卡在一个没有对应样式的值上。
+func NormalizeIconPos(pos string) string {
+	switch pos {
+	case IconPosTopLeft, IconPosTopRight, IconPosBottomRight:
+		return pos
+	default:
+		return IconPosBottomLeft
+	}
+}
+
 func Default() Settings {
-	return Settings{SoundEnabled: true}
+	return Settings{SoundEnabled: true, IconPos: IconPosBottomLeft}
 }
 
 const fileName = "settings.json"

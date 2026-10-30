@@ -8,6 +8,8 @@ const props = defineProps<{
   game: Game;
   focused: boolean;
   favorite: boolean;
+  /** 平台图标位置：bl（默认，和名称同一行）/ tl / tr / br */
+  iconPos?: string;
 }>();
 
 const emit = defineEmits<{ pick: []; activate: [] }>();
@@ -25,12 +27,16 @@ watch(
 );
 const accentVivid = computed(() => vivid(accent.value));
 const badge = computed(() => providerLabel(props.game.provider));
+
+/** 贴角模式：除了「左下」以外的三个位置都画到封面角上。 */
+const corner = computed(() => (props.iconPos ?? "bl") !== "bl");
+const posClass = computed(() => `icon-${props.iconPos ?? "bl"}`);
 </script>
 
 <template>
   <article
     class="card"
-    :class="{ focused, favorite }"
+    :class="[{ focused, favorite }, posClass]"
     :style="{ '--accent': accent, '--accent-vivid': accentVivid }"
     @click="emit('pick')"
     @dblclick="emit('activate')"
@@ -42,12 +48,14 @@ const badge = computed(() => providerLabel(props.game.provider));
         <span class="art-glyph">{{ game.title.slice(0, 1) }}</span>
       </template>
       <div class="sheen" />
+      <!-- 贴角模式：平台图标画在封面角上，压在最上层 -->
+      <ProviderIcon v-if="corner" class="badge" :provider="game.provider" :title="badge" />
     </div>
 
     <div class="label">
-      <!-- 图标 + 游戏名一行：平台信息交给图标表达（悬停有全名，
-           详情面板的 eyebrow 也还写着平台），不再占一行文字。 -->
-      <ProviderIcon class="label-icon" :provider="game.provider" :title="badge" />
+      <!-- 默认（左下）：图标 + 游戏名一行，平台信息交给图标表达
+           （悬停有全名，详情面板的 eyebrow 也还写着平台） -->
+      <ProviderIcon v-if="!corner" class="label-icon" :provider="game.provider" :title="badge" />
       <span class="name">{{ game.title }}</span>
     </div>
 
@@ -181,5 +189,38 @@ const badge = computed(() => providerLabel(props.game.provider));
   font-size: 0.85rem;
   color: #ffd479;
   text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6);
+}
+
+/* ---- 贴角模式的平台图标 ---- */
+.badge {
+  position: absolute;
+  z-index: 2;
+  font-size: 1.05rem;
+  filter: drop-shadow(0 2px 6px rgba(0, 0, 0, 0.55));
+}
+
+.icon-tl .badge {
+  top: 0.5em;
+  left: 0.5em;
+}
+
+.icon-tr .badge {
+  top: 0.5em;
+  right: 0.5em;
+}
+
+/* 右下让开标题条：贴到底会压在游戏名上 */
+.icon-br .badge {
+  right: 0.5em;
+  bottom: 2.5em;
+}
+
+/* 图标占了角，就把角上的角标往下让开，别叠在一起 */
+.icon-tl .running {
+  top: 2.3em;
+}
+
+.icon-tr .star {
+  top: 2.2em;
 }
 </style>

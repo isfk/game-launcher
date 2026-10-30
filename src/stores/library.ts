@@ -16,6 +16,8 @@ export const useLibrary = defineStore("library", () => {
   const favorites = ref<Set<string>>(loadFavorites());
   // 界面音效开关存在后端（settings.json），这里只是镜像
   const soundEnabled = ref(true);
+  // 卡片上平台图标的位置：tl / tr / bl（默认，和游戏名同一行）/ br
+  const iconPos = ref<string>("bl");
   // 已经问过后端要过主色的 key（含没取到的情况），避免反复请求
   const accentAsked = new Set<string>();
 
@@ -33,9 +35,28 @@ export const useLibrary = defineStore("library", () => {
     try {
       const s = await Launcher.settings();
       soundEnabled.value = s.soundEnabled;
+      iconPos.value = s.iconPos || "bl";
       favorites.value = new Set(s.favorites ?? []);
     } catch {
       // 读不到设置就按默认值走，不影响使用
+    }
+  }
+
+  /** 四个位置按顺序轮转，设置面板里一个按钮就能切。 */
+  const ICON_POSITIONS = ["bl", "tl", "tr", "br"] as const;
+  type IconPos = (typeof ICON_POSITIONS)[number];
+
+  /** cycleIconPos 把图标位置切到下一个，并落盘。 */
+  async function cycleIconPos() {
+    const i = ICON_POSITIONS.indexOf(iconPos.value as IconPos);
+    const next: IconPos = ICON_POSITIONS[(i + 1) % ICON_POSITIONS.length] ?? "bl";
+    iconPos.value = next;
+    if (!isMyGo()) return;
+    try {
+      const s = await Launcher.setIconPos(next);
+      iconPos.value = s.iconPos || next;
+    } catch {
+      // 落盘失败先用内存里的值
     }
   }
 
@@ -46,6 +67,7 @@ export const useLibrary = defineStore("library", () => {
     try {
       const s = await Launcher.setSoundEnabled(on);
       soundEnabled.value = s.soundEnabled;
+      iconPos.value = s.iconPos || "bl";
     } catch {
       // 落盘失败就先用着内存里的值
     }
@@ -223,6 +245,8 @@ export const useLibrary = defineStore("library", () => {
     error,
     favorites,
     soundEnabled,
+    iconPos,
+    cycleIconPos,
     selected,
     isDemo,
     load,

@@ -66,6 +66,7 @@ export interface Settings {
   soundEnabled: boolean;
   favorites?: string[];
   manualGames?: ManualGame[];
+  iconPos?: string;
 }
 
 export interface State {
@@ -144,6 +145,10 @@ export const Launcher = {
   /** SetFocused 由窗口的焦点事件调用。 */
   setFocused(on: boolean): Promise<void> {
     return call("Launcher.SetFocused", on);
+  },
+  /** SetIconPos 改卡片上平台图标的位置（tl / tr / bl / br）。 */
+  setIconPos(pos: string): Promise<Settings> {
+    return call("Launcher.SetIconPos", pos);
   },
   /** SetSoundEnabled 记住界面音效开关。 */
   setSoundEnabled(enabled: boolean): Promise<Settings> {
