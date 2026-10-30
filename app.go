@@ -231,6 +231,30 @@ func (l *Launcher) SetSort(by, dir string) (config.Settings, error) {
 	next := l.settingsNow()
 	next.SortBy = config.NormalizeSortBy(by)
 	next.SortDir = config.NormalizeSortDir(dir)
+	// 轮到「自定义」但根本没有顺序：回落到最近游玩，别让界面显示一个排不出来的档
+	if next.SortBy == config.SortByManual && len(next.Order) == 0 {
+		next.SortBy = config.SortByRecent
+	}
+	return l.saveSettings(next)
+}
+
+// SetOrder 记住玩家自己调出来的顺序（全部游戏里「调整顺序」后提交）。
+//
+// 传进来的是**完整**的 key 列表；顺手把排序切到「自定义」——
+// 调了半天顺序还被「最近游玩」踹回原位，那才叫莫名其妙。
+// 传空列表 = 清掉自定义顺序，并回到最近游玩。
+func (l *Launcher) SetOrder(keys []string) (config.Settings, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+
+	next := l.settingsNow()
+	next.Order = config.NormalizeOrder(keys)
+	if len(next.Order) == 0 {
+		next.SortBy = config.SortByRecent
+		next.SortDir = config.SortDesc
+	} else {
+		next.SortBy = config.SortByManual
+	}
 	return l.saveSettings(next)
 }
 

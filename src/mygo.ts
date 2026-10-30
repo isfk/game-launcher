@@ -83,6 +83,7 @@ export interface Settings {
   hidden?: string[];
   sortBy?: string;
   sortDir?: string;
+  order?: string[];
   name?: string;
   avatar?: string;
 }
@@ -205,6 +206,16 @@ export const Launcher = {
   /** SetNickname 记住昵称。空串表示「不自定义」，回到系统账户名。 */
   setNickname(name: string): Promise<Profile> {
     return call("Launcher.SetNickname", name);
+  },
+  /**
+   * SetOrder 记住玩家自己调出来的顺序（全部游戏里「调整顺序」后提交）。
+   *
+   * 传进来的是**完整**的 key 列表；顺手把排序切到「自定义」——
+   * 调了半天顺序还被「最近游玩」踹回原位，那才叫莫名其妙。
+   * 传空列表 = 清掉自定义顺序，并回到最近游玩。
+   */
+  setOrder(keys: string[]): Promise<Settings> {
+    return call("Launcher.SetOrder", keys);
   },
   /** SetSort 改首页的排序方式与方向，非法值会被收敛到合法取值。 */
   setSort(by: string, dir: string): Promise<Settings> {

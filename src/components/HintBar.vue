@@ -14,7 +14,7 @@ import { glyphsFor } from "../lib/glyphs";
 const props = defineProps<{
   pad: boolean;
   kind?: "xbox" | "playstation" | "switch";
-  context?: "home" | "detail" | "settings" | "grid";
+  context?: "home" | "detail" | "settings" | "grid" | "move";
 }>();
 
 const glyphs = computed(() => glyphsFor(props.kind));
@@ -33,6 +33,13 @@ const hints = computed<Hint[]>(() => {
 
   // 手柄：键位跟着设备类型走（glyphsFor 决定符号）
   if (props.pad) {
+    if (context.value === "move") {
+      return [
+        { cap: "↑↓←→", label: "挪动" },
+        { cap: g.confirm.text, tone: g.confirm.tone, label: "放下" },
+        { cap: g.back.text, tone: g.back.tone, label: "取消" },
+      ];
+    }
     if (context.value === "grid") {
       return [
         { cap: "↑↓←→", label: "移动" },
@@ -67,6 +74,14 @@ const hints = computed<Hint[]>(() => {
   }
 
   // 键盘
+  if (context.value === "move") {
+    return [
+      { cap: "↑↓←→", label: "挪动" },
+      { cap: "Enter", label: "放下" },
+      { cap: "Esc", label: "取消" },
+    ];
+  }
+
   // 顺序和首页一致：导航 → 启动 → 详情 → 收藏 → 设置 → 搜索 → 其余 → 关闭
   if (context.value === "grid") {
     return [

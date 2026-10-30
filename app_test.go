@@ -980,3 +980,36 @@ func TestOpenFolderUsesInstallDir(t *testing.T) {
 		t.Error("不存在的 key 应该报错")
 	}
 }
+
+// TestSetOrderStoresManualOrder 覆盖「调整顺序」的落盘：完整列表存下来，
+// 排序顺手切到自定义；传空列表则清掉并回到最近游玩。
+func TestSetOrderStoresManualOrder(t *testing.T) {
+	dir := t.TempDir()
+
+	first := &Launcher{}
+	first.setConfig(config.NewStore(dir))
+	got, err := first.SetOrder([]string{"epic:9", "steam:1245620", "epic:9", " "})
+	if err != nil {
+		t.Fatalf("SetOrder: %v", err)
+	}
+	if got.SortBy != config.SortByManual {
+		t.Errorf("SortBy = %q，期望 manual", got.SortBy)
+	}
+	if len(got.Order) != 2 || got.Order[0] != "epic:9" || got.Order[1] != "steam:1245620" {
+		t.Errorf("Order = %v，期望去重后的两条", got.Order)
+	}
+
+	// 重启：顺序还在
+	second := &Launcher{}
+	second.setConfig(config.NewStore(dir))
+	if s := second.Settings(); len(s.Order) != 2 || s.SortBy != config.SortByManual {
+		t.Errorf("重启后 = %q/%v", s.SortBy, s.Order)
+	}
+
+	// 清空：回到最近游玩
+	if cleared, err := second.SetOrder(nil); err != nil {
+		t.Fatalf("SetOrder(nil): %v", err)
+	} else if len(cleared.Order) != 0 || cleared.SortBy != config.SortByRecent {
+		t.Errorf("清空后 = %q/%v，期望 recent/nil", cleared.SortBy, cleared.Order)
+	}
+}

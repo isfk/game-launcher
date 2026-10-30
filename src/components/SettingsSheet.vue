@@ -19,6 +19,8 @@ const emit = defineEmits<{
   close: [];
   rescan: [];
   toggleFullscreen: [];
+  /** 进网格「调整顺序」（手柄玩家的入口） */
+  order: [];
   /** 手动添加成功（外层弹提示） */
   added: [];
   /** 添加失败（外层弹错误） */
@@ -72,6 +74,7 @@ const nav = usePanelNav(() => [
   { key: "iconpos", activate: () => void cycleIcon() },
   { key: "sortby", activate: () => void lib.cycleSortBy() },
   { key: "sortdir", activate: () => void lib.toggleSortDir() },
+  { key: "order", activate: () => emit("order") },
   { key: "filter", activate: () => lib.cyclePlatformFilter() },
   { key: "unhide", activate: () => void lib.unhideAll() },
   // 每个被隐藏的游戏单独一条：可以只恢复其中一部
@@ -86,6 +89,7 @@ const SORT_LABEL: Record<string, string> = {
   name: "名称",
   playtime: "游玩时长",
   size: "体积",
+  manual: "自定义",
 };
 const FILTER_LABEL: Record<string, string> = {
   "": "全部",
@@ -376,6 +380,21 @@ function toggleSound() {
             @click="lib.toggleSortDir()"
           >
             {{ lib.sortDir === "asc" ? "升序" : "降序" }}
+          </button>
+        </li>
+
+        <li>
+          <div>
+            <span class="label">调整游戏顺序</span>
+            <span class="desc">进「全部游戏」，用方向键把卡片挪到想要的位置</span>
+          </div>
+          <button
+            class="btn"
+            :class="{ focused: nav.isFocused('order') }"
+            @mouseenter="focusTo('order')"
+            @click="$emit('order')"
+          >
+            调整
           </button>
         </li>
 

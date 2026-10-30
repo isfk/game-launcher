@@ -40,6 +40,9 @@ type Settings struct {
 	// 收藏永远置顶，这两个只决定「同类之内」的顺序。
 	SortBy  string `json:"sortBy,omitempty"`
 	SortDir string `json:"sortDir,omitempty"`
+	// Order 是「自定义顺序」（玩家在全部游戏里两张卡一张拖出来的）。
+	// 存的是 Game.Key 的完整顺序，空表示没调过。SortBy 为 manual 时生效。
+	Order []string `json:"order,omitempty"`
 	// Name 是右上角的昵称。空串不是「叫空名字」，而是「用系统账户名」——
 	// 第一次启动的人不该先被安上一个假名字。
 	Name string `json:"name,omitempty"`
@@ -98,11 +101,13 @@ func NormalizeIconPos(pos string) string {
 }
 
 // 排序字段。recent = 最近游玩（Steam 有数据，其他平台按名字兜底）。
+// manual = 玩家自己拖出来的顺序（存在 Settings.Order）。
 const (
 	SortByRecent   = "recent"
 	SortByName     = "name"
 	SortByPlaytime = "playtime"
 	SortBySize     = "size"
+	SortByManual   = "manual"
 )
 
 // 排序方向。
@@ -112,7 +117,31 @@ const (
 )
 
 // SortOptions 是设置面板里轮转的顺序，也是校验白名单。
-var SortOptions = []string{SortByRecent, SortByName, SortByPlaytime, SortBySize}
+// manual 也在白名单里：顺序调好之后界面会把「自定义」当成一个正常的排序项。
+var SortOptions = []string{SortByRecent, SortByName, SortByPlaytime, SortBySize, SortByManual}
+
+// NormalizeOrder 收敛自定义顺序：去空白、去重（保留第一次出现的位置）。
+//
+// 手改 settings.json、或者库缩水之后重复写同一个 key，都不该让排序错位。
+func NormalizeOrder(keys []string) []string {
+	if len(keys) == 0 {
+		return nil
+	}
+	seen := make(map[string]bool, len(keys))
+	out := make([]string, 0, len(keys))
+	for _, key := range keys {
+		key = strings.TrimSpace(key)
+		if key == "" || seen[key] {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
 
 // NormalizeSortBy 收敛非法的排序字段，默认「最近游玩」。
 func NormalizeSortBy(by string) string {
@@ -250,6 +279,12 @@ func (s *Store) Load() (Settings, error) {
 	v.IconPos = NormalizeIconPos(v.IconPos)
 	v.SortBy = NormalizeSortBy(v.SortBy)
 	v.SortDir = NormalizeSortDir(v.SortDir)
+	v.Order = NormalizeOrder(v.Order)
+	// 「自定义」但一个 key 都没有（老配置、手改坏了）：回落到最近游玩，
+	// 否则界面会显示「自定义」却什么也排不出来。
+	if v.SortBy == SortByManual && len(v.Order) == 0 {
+		v.SortBy = SortByRecent
+	}
 	return v, nil
 }
 

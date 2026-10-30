@@ -17,6 +17,8 @@ export const useLibrary = defineStore("library", () => {
   const sortBy = ref<string>("recent");
   const sortDir = ref<string>("desc");
   const platformFilter = ref<string>(""); // "" = 全部平台
+  // 自定义顺序（全部游戏里「调整顺序」写下的）。sortBy 为 manual 时生效。
+  const order = ref<string[]>([]);
   const source = ref(""); // steam | demo
   const roots = ref<string[]>([]);
   const index = ref(0);
@@ -71,6 +73,7 @@ export const useLibrary = defineStore("library", () => {
       hidden.value = new Set(s.hidden ?? []);
       sortBy.value = s.sortBy || "recent";
       sortDir.value = s.sortDir || "desc";
+      order.value = s.order ?? [];
       favorites.value = new Set(s.favorites ?? []);
       applyProfile(p);
     } catch {
@@ -162,10 +165,14 @@ export const useLibrary = defineStore("library", () => {
     }
   }
 
-  /** cycleSortBy 换一个排序字段并落盘。 */
+  /** cycleSortBy 换一个排序字段并落盘。
+   *
+   * 调过自定义顺序的话，「自定义」也占一档：玩家能从它转出去，也能转回来。
+   */
   async function cycleSortBy() {
-    const i = SORT_OPTIONS.indexOf(sortBy.value as (typeof SORT_OPTIONS)[number]);
-    const next = SORT_OPTIONS[(i + 1) % SORT_OPTIONS.length] ?? "recent";
+    const options: string[] = order.value.length ? [...SORT_OPTIONS, "manual"] : [...SORT_OPTIONS];
+    const i = options.indexOf(sortBy.value);
+    const next = options[(i + 1) % options.length] ?? "recent";
     const keepKey = selected.value?.key;
     sortBy.value = next;
     reconcileFocus(keepKey);
@@ -175,6 +182,47 @@ export const useLibrary = defineStore("library", () => {
       sortBy.value = s.sortBy || next;
     } catch {
       // 落盘失败先用内存值
+    }
+  }
+
+  /**
+   * setManualOrder 把「界面上看到的顺序」写成自定义顺序。
+   *
+   * visibleKeys 只覆盖当前筛选下的那些卡。被筛掉、被隐藏的游戏不该因为
+   * 一次拖动就丢掉位置，所以做法是：取当前排序下的全表，把可见的那几个槽位
+   * 按新顺序重新填进去，其余位置原样不动。
+   */
+  async function setManualOrder(visibleKeys: string[]) {
+    const keepKey = selected.value?.key;
+    const visible = new Set(visibleKeys);
+    const current = orderGames(allGames.value);
+
+    const slots: number[] = [];
+    current.forEach((g, i) => {
+      if (visible.has(g.key)) slots.push(i);
+    });
+
+    const next = [...current];
+    const wanted = visibleKeys
+      .map((key) => current.find((g) => g.key === key))
+      .filter((g): g is Game => g !== undefined);
+    slots.forEach((slot, i) => {
+      const game = wanted[i];
+      if (game) next[slot] = game;
+    });
+
+    order.value = next.map((g) => g.key);
+    sortBy.value = "manual";
+    reconcileFocus(keepKey);
+
+    if (!isMyGo()) return;
+    try {
+      const s = await Launcher.setOrder(order.value);
+      order.value = s.order ?? order.value;
+      sortBy.value = s.sortBy || "manual";
+      reconcileFocus(keepKey);
+    } catch {
+      // 落盘失败就先用内存里的顺序，下次启动回到磁盘上的状态
     }
   }
 
@@ -277,6 +325,20 @@ export const useLibrary = defineStore("library", () => {
   function orderGames(list: Game[]): Game[] {
     const dir = sortDir.value === "asc" ? 1 : -1;
     const by = sortBy.value;
+
+    // 自定义顺序：完全按玩家拖出来的位置，收藏不再置顶
+    // （不然「把收藏挪下去」会一直被弹回顶部）。
+    if (by === "manual" && order.value.length) {
+      const pos = new Map(order.value.map((key, i) => [key, i]));
+      const at = (g: Game) => pos.get(g.key) ?? Number.MAX_SAFE_INTEGER;
+      return [...list].sort((a, b) => {
+        const pa = at(a);
+        const pb = at(b);
+        if (pa !== pb) return pa - pb;
+        // 没排过的（新装的、手加的）排在后面，彼此按名字稳定
+        return a.title.localeCompare(b.title, "zh-Hans-CN");
+      });
+    }
 
     const value = (g: Game): string | number => {
       switch (by) {
@@ -440,6 +502,8 @@ export const useLibrary = defineStore("library", () => {
     hiddenGames,
     sortBy,
     sortDir,
+    order,
+    setManualOrder,
     platformFilter,
     toggleHidden,
     unhideAll,

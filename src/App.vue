@@ -92,7 +92,13 @@ const gridRef = ref<{
   openDetail: () => boolean;
   favorite: () => boolean;
   reset: (startKey?: string) => void;
+  startMove: () => boolean;
+  finishMove: () => boolean;
+  cancelMove: () => boolean;
+  isMoving: () => boolean;
 } | null>(null);
+/** 网格里是不是正在「调整顺序」（提示条和按键分发都要跟着变） */
+const gridMoving = ref(false);
 const uninstalling = ref(false);
 let uninstallTimer: number | undefined;
 const launching = ref<{ title: string; status: "starting" | "failed"; message?: string } | null>(null);
@@ -290,6 +296,8 @@ function openGrid() {
 
 function closeGrid() {
   if (!gridOpen.value) return;
+  // 搬动中直接关掉等于默默丢弃这次调整：先按取消处理
+  if (gridRef.value?.isMoving()) gridRef.value.cancelMove();
   sfx.back();
   gridOpen.value = false;
 }
@@ -334,6 +342,27 @@ function favoriteFromGrid(key: string) {
 function pickFromSearch(key: string) {
   if (gridOpen.value) gridRef.value?.reset(key);
   else lib.focusKey(key);
+}
+
+/**
+ * startGridMove 进入「调整顺序」。
+ *
+ * 三种入口共用：标题栏按钮（鼠标）、键盘 M、设置面板里的「调整游戏顺序」
+ * （手柄玩家的路子 —— 手柄没有指针，但 Menu 键人人都有）。
+ */
+async function startGridMove() {
+  if (!lib.games.length) return;
+  if (!gridOpen.value) {
+    openGrid();
+    await nextTick();
+  }
+  if (gridRef.value?.startMove()) sfx.confirm();
+}
+
+/** 设置面板里的「调整游戏顺序」：先收起面板，再进网格开始搬。 */
+async function orderFromSettings() {
+  settingsOpen.value = false;
+  await startGridMove();
 }
 
 function openSearch() {
@@ -472,6 +501,15 @@ function onPadIntent(intent: PadIntent) {
       return;
     }
     if (intent.kind === "button") {
+      // 调整顺序时只剩三件事：A 放下、B 取消、方向键挪位置
+      if (gridMoving.value) {
+        if (intent.button === "south") {
+          if (gridRef.value?.finishMove()) sfx.confirm();
+        } else if (intent.button === "east") {
+          if (gridRef.value?.cancelMove()) sfx.back();
+        }
+        return;
+      }
       if (intent.button === "south") gridRef.value?.launch();
       else if (intent.button === "north") gridRef.value?.openDetail();
       else if (intent.button === "west") gridRef.value?.favorite();
@@ -602,6 +640,35 @@ function onKeydown(e: KeyboardEvent) {
       sfx.move(); // 只有「移动」用这个音，动作键各自发自己的声音
     };
 
+    // 调整顺序：方向键挪卡片，Enter 放下，Esc 取消；别的键先不接
+    if (gridMoving.value) {
+      switch (e.key) {
+        case "ArrowLeft":
+          step(-1, 0);
+          break;
+        case "ArrowRight":
+          step(1, 0);
+          break;
+        case "ArrowUp":
+          step(0, -1);
+          break;
+        case "ArrowDown":
+          step(0, 1);
+          break;
+        case "Enter":
+        case " ":
+          e.preventDefault();
+          if (gridRef.value?.finishMove()) sfx.confirm();
+          break;
+        case "Escape":
+        case "Backspace":
+          e.preventDefault();
+          if (gridRef.value?.cancelMove()) sfx.back();
+          break;
+      }
+      return;
+    }
+
     switch (e.key) {
       case "ArrowLeft":
         step(-1, 0);
@@ -634,6 +701,11 @@ function onKeydown(e: KeyboardEvent) {
       case "S":
         e.preventDefault();
         openSettings();
+        break;
+      case "m":
+      case "M":
+        e.preventDefault();
+        void startGridMove();
         break;
       case "/":
         e.preventDefault();
@@ -951,6 +1023,7 @@ onUnmounted(() => {
       @launch="launchFromGrid"
       @detail="detailFromGrid"
       @favorite="favoriteFromGrid"
+      @moving="gridMoving = $event"
     />
 
     <!-- 下面这三层提到 .app 根上：首页和网格都要用。
@@ -969,6 +1042,7 @@ onUnmounted(() => {
       @close="settingsOpen = false"
       @rescan="rescan"
       @toggle-fullscreen="toggleFullScreen"
+      @order="orderFromSettings"
       @added="showToast('已添加 1 部游戏（手动添加的排在库里最前面）')"
       @failed="showToast"
     />
@@ -990,7 +1064,9 @@ onUnmounted(() => {
     <HintBar
       :pad="usingPad"
       :kind="padKind"
-      :context="settingsOpen ? 'settings' : gridOpen ? 'grid' : detailOpen ? 'detail' : 'home'"
+      :context="
+        gridMoving ? 'move' : settingsOpen ? 'settings' : gridOpen ? 'grid' : detailOpen ? 'detail' : 'home'
+      "
     />
 
   </div>

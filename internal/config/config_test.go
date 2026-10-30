@@ -308,3 +308,62 @@ func TestLoadFillsLegacyDefaults(t *testing.T) {
 		t.Error("音效开关应该保留旧配置里的 false")
 	}
 }
+
+// TestNormalizeOrder 自定义顺序：去空白、去重、保留第一次出现的位置。
+func TestNormalizeOrder(t *testing.T) {
+	got := NormalizeOrder([]string{"steam:1", " ", "steam:2", "steam:1", "epic:9"})
+	want := []string{"steam:1", "steam:2", "epic:9"}
+	if len(got) != len(want) {
+		t.Fatalf("NormalizeOrder = %v，期望 %v", got, want)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("NormalizeOrder = %v，期望 %v", got, want)
+		}
+	}
+	if NormalizeOrder(nil) != nil || NormalizeOrder([]string{"  "}) != nil {
+		t.Error("空顺序应该归一成 nil")
+	}
+}
+
+// TestManualSortFallsBackWithoutOrder 「自定义」但没顺序时不能卡在一个排不出来的档。
+func TestManualSortFallsBackWithoutOrder(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+	raw := `{"soundEnabled": true, "sortBy": "manual"}`
+	if err := os.WriteFile(store.Path(), []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := store.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if got.SortBy != SortByRecent {
+		t.Errorf("SortBy = %q，没顺序时应该回落到 recent", got.SortBy)
+	}
+}
+
+// TestOrderPersists 自定义顺序要能存下来、读回来，并且和 manual 一起生效。
+func TestOrderPersists(t *testing.T) {
+	dir := t.TempDir()
+	store := NewStore(dir)
+
+	s := Default()
+	s.SortBy = SortByManual
+	s.Order = []string{"epic:9", "steam:1"}
+	if err := store.Save(s); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	again, err := NewStore(dir).Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if again.SortBy != SortByManual {
+		t.Errorf("SortBy = %q，期望 manual", again.SortBy)
+	}
+	if len(again.Order) != 2 || again.Order[0] != "epic:9" {
+		t.Errorf("Order = %v", again.Order)
+	}
+}

@@ -181,6 +181,22 @@ onUpdated(() => {
   z-index: 2;
 }
 
+/*
+ * 「全部游戏」里正在搬到别处的那个：抬起来一点。
+ * 只加投影和亮度，不动 transform —— 那张卡同时是焦点卡（有自己的 scale），
+ * 两个 transform 叠在一起会把它拉歪。
+ */
+.card.lifting {
+  filter: saturate(1.1) brightness(1.1);
+  box-shadow: 0 34px 74px rgba(0, 0, 0, 0.72);
+}
+
+/* 卡片是「可以拖的」，别让浏览器把它当图片拖（会盖掉卡片自己的拖动） */
+.art img {
+  -webkit-user-drag: none;
+  user-select: none;
+}
+
 .art {
   position: absolute;
   inset: 0;
