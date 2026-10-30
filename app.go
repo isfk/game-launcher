@@ -17,6 +17,7 @@ import (
 	"game-launcher/internal/artcache"
 	"game-launcher/internal/asset"
 	"game-launcher/internal/config"
+	"game-launcher/internal/epic"
 	"game-launcher/internal/launch"
 	"game-launcher/internal/library"
 	"game-launcher/internal/manual"
@@ -250,23 +251,37 @@ func (l *Launcher) Library(ctx context.Context, refresh bool) (LibraryResult, er
 
 // rescan 扫一遍磁盘、更新缓存，并把结果整理成界面能用的形状。
 func (l *Launcher) rescan(ctx context.Context, cache *artcache.Cache) (LibraryResult, error) {
-	games, err := steam.Provider{}.Scan(ctx)
-	source := "steam"
-	if len(games) == 0 {
-		// 这台机器上没有 Steam 库：给界面一份演示数据，好看清版式。
-		games = library.DemoGames()
-		source = "demo"
+	// 各平台的扫描互不干扰：这台机器没装 Epic 不该影响 Steam 的库。
+	var games []library.Game
+	sources := make([]string, 0, 2)
+	for _, p := range providers() {
+		found, err := p.Scan(ctx)
+		if err != nil {
+			// 扫不到不是错误：空库是合法状态，Roots 留给界面排查
+			log.Printf("library: %s 扫描失败（已跳过）: %v", p.ID(), err)
+		}
+		if len(found) == 0 {
+			continue
+		}
+		sources = append(sources, p.ID())
+		games = append(games, found...)
 	}
-	_ = err // 扫不到不是错误：空库是合法状态，Roots 留给界面排查
+	source := strings.Join(sources, "+")
 
 	// 手动添加的游戏排在前面：它们是玩家特意手动加进来的，
 	// 不该被 Steam 那几十部淹掉。
 	manualGames := l.manualGames()
 	if len(manualGames) > 0 {
 		games = append(manualGames, games...)
-		if source == "demo" && len(games) > len(manualGames) {
-			source = "steam" // 有手动游戏时不该再显示「没找到 Steam 库」
+		if source == "" {
+			source = "manual" // 只有手动游戏，不该显示成演示数据
 		}
+	}
+
+	if len(games) == 0 {
+		// 这台机器上什么库都没有：给界面一份演示数据，好看清版式。
+		games = library.DemoGames()
+		source = "demo"
 	}
 
 	// 新发售的游戏常常还没上传库封面（library_600x900.jpg 直接 404），
@@ -280,7 +295,7 @@ func (l *Launcher) rescan(ctx context.Context, cache *artcache.Cache) (LibraryRe
 	l.publish(games)
 	l.source = source
 	l.scanned = time.Now()
-	l.signature = steam.Signature()
+	l.signature = librarySignature()
 	result := l.result()
 	l.mu.Unlock()
 
@@ -412,6 +427,19 @@ func manualFilters() []mygo.FileFilter {
 	return nil
 }
 
+// providers 返回要扫的平台。加新平台只要在这里追加一行，界面一行不用改。
+func providers() []library.Provider {
+	return []library.Provider{
+		steam.Provider{},
+		epic.Provider{},
+	}
+}
+
+// librarySignature 把各平台的库指纹拼起来，供后台轮询判断要不要重扫。
+func librarySignature() string {
+	return steam.Signature() + "|epic|" + epic.SignatureNow()
+}
+
 // WatchLibrary 每 5 秒给 Steam 库拍一次指纹，一变就重扫并广播 LibraryChanged。
 // 这样在 Steam 里装完一部游戏，回到启动器不用按任何键它自己就出现了。
 //
@@ -435,7 +463,7 @@ func (l *Launcher) WatchLibrary(ctx context.Context) {
 		cache := l.cache
 		l.mu.Unlock()
 
-		current := steam.Signature()
+		current := librarySignature()
 		if current == seen {
 			continue
 		}
@@ -444,7 +472,7 @@ func (l *Launcher) WatchLibrary(ctx context.Context) {
 		// 免得扫到「下了一半」的中间状态。
 		time.Sleep(1500 * time.Millisecond)
 		l.mu.Lock()
-		l.signature = steam.Signature()
+		l.signature = librarySignature()
 		l.mu.Unlock()
 
 		result, err := l.rescan(ctx, cache)
@@ -734,6 +762,10 @@ func (l *Launcher) result() LibraryResult {
 	if env := steam.RootFromEnv(); env != "" {
 		roots = append([]string{env}, roots...)
 	}
+	roots = append(roots, epic.DefaultRoots()...)
+	if env := epic.RootFromEnv(); env != "" {
+		roots = append([]string{env}, roots...)
+	}
 	return LibraryResult{
 		Games:     l.games,
 		Source:    l.source,
@@ -792,6 +824,14 @@ func (l *Launcher) launchGame(ctx context.Context, game library.Game) (string, e
 			return "", err
 		}
 		// 开始守护这个进程：它退出时把启动器拉回前台。
+		l.watchAfterLaunch(game)
+		return game.Title, nil
+	case "epic":
+		// 走 openURL 这层间接（而不是 epic.Provider.Launch 里的 launch.OpenURL），
+		// 测试才能替换掉「真的去开协议」这一步
+		if err := openURL(ctx, epic.LaunchURL(game.AppID)); err != nil {
+			return "", err
+		}
 		l.watchAfterLaunch(game)
 		return game.Title, nil
 	case "manual":
@@ -873,6 +913,12 @@ func (l *Launcher) Uninstall(ctx context.Context, key string) (string, error) {
 			return "", fmt.Errorf("「%s」缺少 appid，没法交给 Steam 卸载", game.Title)
 		}
 		if err := openURL(ctx, "steam://uninstall/"+game.AppID); err != nil {
+			return "", err
+		}
+		return game.Title, nil
+	case "epic":
+		// 同样交给客户端：它要清自己的清单、注册表和云存档映射
+		if err := openURL(ctx, epic.UninstallURL(game.AppID)); err != nil {
 			return "", err
 		}
 		return game.Title, nil

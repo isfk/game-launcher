@@ -96,8 +96,10 @@ const specs = computed(() => {
   ];
 });
 
-/** 只有 Steam 的游戏能交给客户端卸载；演示数据没有可卸载的东西。 */
-const canUninstall = computed(() => props.game?.provider === "steam" && !!props.game?.appId);
+/** 有客户端的平台都能交给它卸载（Steam / Epic）；演示数据没有可卸载的东西。 */
+const canUninstall = computed(
+  () => (props.game?.provider === "steam" || props.game?.provider === "epic") && !!props.game?.appId,
+);
 /** 手动添加的游戏只能「移除」：删的是一条记录，磁盘上的文件不动。 */
 const canRemove = computed(() => props.game?.provider === "manual");
 /** 底部要不要给「卸载 / 移除」留位置。 */
@@ -177,7 +179,7 @@ function shortenPath(path: string, head = 14, tail = 22): string {
           只从启动器里移除这条记录，磁盘上的文件不动。想彻底删掉请自己删文件夹。
         </p>
         <p v-else class="confirm-sub">
-          会交给 Steam 客户端执行，它还会再问一次。卸载完成后这张卡会自动消失。
+          会交给 {{ providerLabel(game?.provider) }} 客户端执行，它还会再问一次。卸载完成后这张卡会自动消失。
         </p>
         <div class="row">
           <button class="act danger" :disabled="busy" @click="emit('confirm-uninstall')">

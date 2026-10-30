@@ -407,6 +407,44 @@ Steam 之外还有一堆「双击 exe 就开」的游戏，所以给了两条入
    发出启动请求到进程被确认之间有个窗口期，这段时间再点 A 直接拒绝；
    已经有游戏在跑时也拒绝，并报出是哪部在跑。
 
+## 4.36 Epic Provider（`internal/epic`）
+
+和 Steam 一样只读本地、不登录、不调 Web API。每个装好的游戏在
+`Manifests` 目录里有一份 `<AppName>.item`（JSON），里面就有显示名、安装目录、体积。
+
+**目录**（`DefaultRoots`，可用 `LAUNCHER_EPIC_DIR` 覆盖，测试和开发都靠它）：
+
+| 平台 | 路径 |
+|---|---|
+| Windows | `%ProgramData%\Epic\EpicGamesLauncher\Data\Manifests` |
+| macOS | `~/Library/Application Support/Epic/EpicGamesLauncher/Data/Manifests` |
+| Linux | `~/.local/share/Epic/EpicGamesLauncher/Data/Manifests` |
+
+**过滤规则**（这块坑最多——Manifests 目录里躺的不只是游戏）：
+
+- `AppCategories` 里必须有 `games`：否则会把 Unreal Engine、插件一起扫进来
+- `MainGameAppName` 非空 → 是 DLC，不给独立一格
+- `IsInDevelopment` / `bIsIncompleteInstall` → 跳过（开发版、下了一半的）
+- 缺 `AppName` / `DisplayName` / `InstallLocation` 的一律不要，宁可少一格也不显示空白卡
+- 单份清单 JSON 坏了就当没看见，不影响其他游戏
+
+**启动与卸载**都交给 Epic 客户端自己的协议：
+
+```
+com.epicgames.launcher://apps/<AppName>?action=launch&silent=true
+com.epicgames.launcher://apps/<AppName>?action=uninstall&silent=true
+```
+
+自己跑 exe 会绕开它的云存档和 DRM；自己删目录会把客户端搞成半损状态。
+
+**已知取舍**：Epic 本地没有库封面（图在它自己的缓存里、跟账号绑定），
+所以卡片和背景走**渐变占位**（主色 + 字母水印），不是 bug。
+想补图得调它的 GraphQL（要 client token），暂时不做。
+
+**多平台合并**：`rescan` 遍历 `providers()`（steam + epic），任一方扫失败只记日志、
+不影响另一方；`Source` 用 `+` 拼起来（`"steam+epic"`、`"epic"`、`"manual"`、`"demo"`），
+界面按它显示「Steam + Epic · N 部」。库指纹也是两边拼起来（`librarySignature`）。
+
 ## 4.35 层级（z-index）
 
 全应用只从 `style.css` 的层级表取，别写裸数字：
@@ -531,7 +569,7 @@ go run scripts/genicon/main.go -out resources/icon.png
 | **M2** | 详情页竖向导航 ✅、设置持久化到 Go ✅、虚拟手柄 E2E（待办） | 进行中 |
 | **M3** | 手动添加游戏 ✅（`Dialog.Open` 选 exe/app）、移除 ✅、搜索 ✅、收藏置顶 ✅ | ✅ 完成 |
 | **M4** | `mygo build -platform windows/amd64` ✅、图标 ✅、全屏盖任务栏保险 ✅、NSIS 安装包（待定：需 makensis）、Windows 真机验收 | 进行中 |
-| **M5** | Epic Provider（`ProgramData\Epic\...\Manifests\*.item`）、WeGame | 待办 |
+| **M5** | Epic Provider ✅、WeGame | 进行中 |
 
 ---
 
@@ -549,6 +587,8 @@ bun run dev                            # mygo dev：Vite + 开发版应用
 - `app_test.go`：空库退回 demo、缓存与 refresh、真实库识别、未知 key 与 demo 条目拒绝启动、
   手动添加（取消/重复/路径失效）、移除（连收藏一起清、不动文件）、手动游戏启动与拒卸载
 - `internal/manual/*_test.go`：路径哈希稳定性、文件名推导、可执行校验、记录转换
+- `internal/epic/*_test.go`：只收 games 类目（DLC/引擎/开发版/半损安装都要滤掉）、
+  坏 JSON 不影响其他清单、按标题稳定排序、两个协议 URL、库指纹随清单变化
 - `app_test.go` 里另有`TestGatePadStates` / `TestPadStatesFollowsFocus`（失焦不推手柄）、
   `TestLaunchRefusesWhileStarting` / `TestLaunchRefusesWhileGameRunning`（防双开）
 - ⚠️ 测试里务必 `t.Setenv("LAUNCHER_NO_STORE_ASSETS", "1")`：否则重扫会去

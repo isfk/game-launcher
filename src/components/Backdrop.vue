@@ -36,7 +36,10 @@ watch(
 
 <template>
   <div class="backdrop">
-    <TransitionGroup name="scene">
+    <!-- duration 是兜底：万一把 CSS 过渡关掉了（系统「减少动态效果」、
+         或者截图时注入 transition:none），transitionend 不会来，
+         不显式给时长旧的那一层就会一直挂在 DOM 里。 -->
+    <TransitionGroup name="scene" :duration="550">
       <div v-for="g in shown" :key="g.key" class="scene" :style="{ '--accent': accentOf(g), '--accent-vivid': vivid(accentOf(g)) }">
         <img
           v-if="heroOf(g) && !failed(g.key, heroOf(g))"

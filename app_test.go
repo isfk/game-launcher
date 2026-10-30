@@ -535,3 +535,158 @@ func TestWatchAfterLaunchClearsStarting(t *testing.T) {
 		t.Error("不守护进程时应该立刻放开 starting，否则再也启动不了")
 	}
 }
+
+// TestEpicGamesMergedIntoLibrary 覆盖多平台合并：Steam 和 Epic 各贡献几部，
+// source 要报出两个平台（界面据此显示 "Steam + Epic"）。
+func TestEpicGamesMergedIntoLibrary(t *testing.T) {
+	t.Setenv("LAUNCHER_NO_STORE_ASSETS", "1")
+
+	steamRoot := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(steamRoot, "steamapps"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `"AppState" { "appid" "1245620" "name" "ELDEN RING" "StateFlags" "4" "installdir" "ELDEN RING" }`
+	if err := os.WriteFile(filepath.Join(steamRoot, "steamapps", "appmanifest_1245620.acf"), []byte(manifest), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LAUNCHER_STEAM_DIR", steamRoot)
+
+	epicDir := t.TempDir()
+	item := `{"AppName":"Fortnite","DisplayName":"Fortnite","AppCategories":["public","games"],"InstallLocation":"D:\\Epic\\Fortnite","InstallSize":100}`
+	if err := os.WriteFile(filepath.Join(epicDir, "Fortnite.item"), []byte(item), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LAUNCHER_EPIC_DIR", epicDir)
+
+	l := &Launcher{}
+	l.setConfig(config.NewStore(t.TempDir()))
+	res, err := l.Library(context.Background(), false)
+	if err != nil {
+		t.Fatalf("Library: %v", err)
+	}
+	if res.Source != "steam+epic" {
+		t.Errorf("Source = %q，期望 steam+epic", res.Source)
+	}
+
+	providers := map[string]int{}
+	for _, g := range res.Games {
+		providers[g.Provider]++
+	}
+	if providers["steam"] != 1 || providers["epic"] != 1 {
+		t.Errorf("两个平台各该有一部，实际 %+v", providers)
+	}
+
+	// Roots 里要能看见 Epic 的目录，扫不到时好排查
+	found := false
+	for _, r := range res.Roots {
+		if r == epicDir {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("Roots 里应该包含 Epic 目录: %v", res.Roots)
+	}
+}
+
+// TestEpicOnlyLibrary 确认只装了 Epic 时不会退回演示数据。
+func TestEpicOnlyLibrary(t *testing.T) {
+	t.Setenv("LAUNCHER_NO_STORE_ASSETS", "1")
+	t.Setenv("LAUNCHER_STEAM_DIR", t.TempDir())
+
+	epicDir := t.TempDir()
+	item := `{"AppName":"AlanWake2","DisplayName":"Alan Wake 2","AppCategories":["games"],"InstallLocation":"D:\\Epic\\AW2"}`
+	if err := os.WriteFile(filepath.Join(epicDir, "AlanWake2.item"), []byte(item), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LAUNCHER_EPIC_DIR", epicDir)
+
+	l := &Launcher{}
+	l.setConfig(config.NewStore(t.TempDir()))
+	res, err := l.Library(context.Background(), false)
+	if err != nil {
+		t.Fatalf("Library: %v", err)
+	}
+	if res.Source != "epic" {
+		t.Errorf("Source = %q，期望 epic", res.Source)
+	}
+	if len(res.Games) != 1 || res.Games[0].Title != "Alan Wake 2" {
+		t.Errorf("游戏列表不对: %+v", res.Games)
+	}
+}
+
+// TestLaunchEpicUsesProtocol 确认 Epic 游戏走客户端的协议启动。
+func TestLaunchEpicUsesProtocol(t *testing.T) {
+	t.Setenv("LAUNCHER_NO_STORE_ASSETS", "1")
+	t.Setenv("LAUNCHER_STEAM_DIR", t.TempDir())
+
+	epicDir := t.TempDir()
+	item := `{"AppName":"Fortnite","DisplayName":"Fortnite","AppCategories":["games"],"InstallLocation":"D:\\Epic\\Fortnite"}`
+	if err := os.WriteFile(filepath.Join(epicDir, "Fortnite.item"), []byte(item), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LAUNCHER_EPIC_DIR", epicDir)
+
+	var gotTarget string
+	restore := swapOpener(func(_ context.Context, target string) error {
+		gotTarget = target
+		return nil
+	})
+	defer restore()
+
+	watchProcesses = false
+	defer func() { watchProcesses = true }()
+
+	l := &Launcher{}
+	l.setConfig(config.NewStore(t.TempDir()))
+	res, err := l.Library(context.Background(), false)
+	if err != nil {
+		t.Fatalf("Library: %v", err)
+	}
+
+	if _, err := l.Launch(context.Background(), res.Games[0].Key); err != nil {
+		t.Fatalf("Launch: %v", err)
+	}
+	want := "com.epicgames.launcher://apps/Fortnite?action=launch&silent=true"
+	if gotTarget != want {
+		t.Errorf("打开的目标 = %q，期望 %q", gotTarget, want)
+	}
+}
+
+// TestUninstallEpicUsesProtocol 确认 Epic 的卸载也交给客户端。
+func TestUninstallEpicUsesProtocol(t *testing.T) {
+	t.Setenv("LAUNCHER_NO_STORE_ASSETS", "1")
+	t.Setenv("LAUNCHER_STEAM_DIR", t.TempDir())
+
+	epicDir := t.TempDir()
+	item := `{"AppName":"Fortnite","DisplayName":"Fortnite","AppCategories":["games"],"InstallLocation":"D:\\Epic\\Fortnite"}`
+	if err := os.WriteFile(filepath.Join(epicDir, "Fortnite.item"), []byte(item), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LAUNCHER_EPIC_DIR", epicDir)
+
+	var gotTarget string
+	restore := swapOpener(func(_ context.Context, target string) error {
+		gotTarget = target
+		return nil
+	})
+	defer restore()
+
+	l := &Launcher{}
+	l.setConfig(config.NewStore(t.TempDir()))
+	res, err := l.Library(context.Background(), false)
+	if err != nil {
+		t.Fatalf("Library: %v", err)
+	}
+
+	title, err := l.Uninstall(context.Background(), res.Games[0].Key)
+	if err != nil {
+		t.Fatalf("Uninstall: %v", err)
+	}
+	if title != "Fortnite" {
+		t.Errorf("返回的名字 = %q", title)
+	}
+	want := "com.epicgames.launcher://apps/Fortnite?action=uninstall&silent=true"
+	if gotTarget != want {
+		t.Errorf("打开的 URL = %q，期望 %q", gotTarget, want)
+	}
+}

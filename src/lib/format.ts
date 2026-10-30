@@ -26,6 +26,8 @@ export function providerLabel(provider: string): string {
   switch (provider) {
     case "steam":
       return "Steam";
+    case "epic":
+      return "Epic";
     case "manual":
       return "手动添加";
     case "demo":

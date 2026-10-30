@@ -1,16 +1,28 @@
 <script setup lang="ts">
+import { computed } from "vue";
 import { useClock } from "../composables/useClock";
 
-defineProps<{ source: string; count: number }>();
+const props = defineProps<{ source: string; count: number }>();
 
 const clock = useClock();
+
+/** 后端的 source 可能是多平台拼起来的（"steam+epic"），这里翻成人话。 */
+const label = computed(() => {
+  if (props.source === "demo" || !props.source) return "演示数据";
+  const names: Record<string, string> = { steam: "Steam", epic: "Epic", manual: "手动添加" };
+  const parts = props.source.split("+").map((id) => names[id] ?? id);
+  return `${parts.join(" + ")} · ${props.count} 部`;
+});
+
+/** 只有演示数据时点个黄灯；真扫到东西就是绿的。 */
+const ok = computed(() => props.source !== "demo" && !!props.source);
 </script>
 
 <template>
   <header class="topbar">
     <div class="chip">
-      <span class="dot" :class="source === 'steam' ? 'ok' : 'warn'" />
-      <span>{{ source === "steam" ? `Steam · ${count} 部` : "演示数据" }}</span>
+      <span class="dot" :class="ok ? 'ok' : 'warn'" />
+      <span>{{ label }}</span>
     </div>
     <div class="who">
       <span class="avatar">M</span>
