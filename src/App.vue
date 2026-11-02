@@ -69,7 +69,6 @@ const gridRef = ref<{
   openDetail: () => boolean;
   favorite: () => boolean;
   reset: (startKey?: string) => void;
-  playExit: () => Promise<void>;
   stepCard: (dir: number) => boolean;
   stepPlatform: (dir: number) => boolean;
   startMove: () => boolean;

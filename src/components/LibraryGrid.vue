@@ -28,8 +28,6 @@ const props = defineProps<{
   index?: number;
   /** 已收藏的 key，星标要和首页一致 */
   favorites?: Set<string>;
-  /** 正在退场：跟着播收起的动画，播完由 App 卸载 */
-  closing?: boolean;
   /**
    * 卡片区布局：
    * - rail：首页那条横着走的卡片带
@@ -106,7 +104,6 @@ onUnmounted(() => {
 
 watch(() => props.games.length, () => nextTick(measureCards));
 
-const rootEl = ref<HTMLElement | null>(null);
 const trackEl = ref<HTMLElement | null>(null);
 /** 卡片带的横向位移：让焦点卡停在正中间 */
 const shift = ref(0);
@@ -131,29 +128,6 @@ function centerRail() {
   const target = cell.offsetLeft - (width - cell.offsetWidth) / 2;
   const maxShift = Math.max(0, track.scrollWidth - width);
   shift.value = -Math.min(Math.max(target, 0), maxShift);
-}
-
-/**
- * playExit 播退场动画（整页往下压出去），播完的 Promise 给 App 用来卸载。
- *
- * 用 Web Animations 而不是 CSS animation：CSS 那套要靠「换 animation-name」
- * 重启动画，实测在这套 WebView 里换完名不动（时间轴停在 0），
- * 于是退场就变成瞬间消失。WAAPI 是显式新建一个动画，没有任何重启语义。
- */
-function playExit(): Promise<void> {
-  const el = rootEl.value;
-  if (!el || !motionOK()) return Promise.resolve();
-  return new Promise((resolve) => {
-    const anim = el.animate(
-      [{ transform: "translateY(0)" }, { transform: "translateY(100%)" }],
-      { duration: 320, easing: "cubic-bezier(0.4, 0, 1, 1)", fill: "forwards" },
-    );
-    const done = () => resolve();
-    anim.onfinish = done;
-    anim.oncancel = done;
-    // 兜底：万一 onfinish 没来（被遮挡/被取消），别把网格永远挂在屏幕上
-    window.setTimeout(done, 420);
-  });
 }
 
 const cursor = ref(0);
@@ -899,7 +873,6 @@ defineExpose({
   openDetail,
   favorite,
   reset,
-  playExit,
   stepCard,
   stepPlatform,
   startMove,
@@ -911,7 +884,7 @@ defineExpose({
 </script>
 
 <template>
-  <div ref="rootEl" class="library" :class="[mode, { closing: props.closing }]">
+  <div class="library" :class="mode">
     <header v-if="!isRail" class="head">
       <h2>
         全部游戏
@@ -988,23 +961,17 @@ defineExpose({
 
 <style scoped>
 .library {
-  /* 网格模式：整页铺开 */
+  /*
+   * 这里是网格模式的几何：整页铺开。
+   * 卡片带的几何在下面 .library.rail 里覆盖 —— 两种布局共用同一批 DOM，
+   * 切换时只换 class，位移交给 FLIP（见 animateFrom）。
+   */
   position: relative;
   z-index: 1;
   height: 100%;
   display: flex;
   flex-direction: column;
   padding: 4.5vh 4vw 3vh;
-  /*
-   * 进出用 keyframes，不用 <Transition> 的过渡类：
-   * 过渡类要靠「下一帧再加 leave-to」这条 rAF 链，窗口被判定不可见时链会断，
-   * 动画就没了。keyframes 一挂上就开始跑，稳固得多。
-   *
-   * 只有位移、不淡化：整页推上去 / 压下来，像主机切页；
-   * 淡入淡出会让两页同时半透明地叠在一起，反而糊。
-   */
-  will-change: transform;
-  backface-visibility: hidden;
 }
 
 /*
@@ -1020,28 +987,6 @@ defineExpose({
   padding: 0;
   display: block;
   --card-w: calc(var(--card-h, 34vh) * 2 / 3);
-}
-
-/*
- * 进场用 CSS animation（挂载即播，没得商量）；
- * 退场用 WAAPI（见 playExit）—— 换 animation-name 重启动画在这套 WebView 里
- * 不可靠，实测换完名时间轴停在 0，退场就变成瞬间消失。
- * .closing 只负责挡住点击，别让正在滑走的页面还接收指针。
- */
-.library.closing {
-  pointer-events: none;
-}
-
-@keyframes page-in {
-  from {
-    transform: translateY(100%);
-  }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .library {
-    animation: none;
-  }
 }
 
 .head {
