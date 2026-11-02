@@ -885,13 +885,15 @@ GET https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=...
 - **网格上/下可跨页**：光标走二维，最后一行再按下就翻到下一页同一列，
   第一行再按上回到上一页同一列；只有越过总条数才不响应（原来是整段禁止跨页）。
 
-## 4.42 「全部游戏」改为独立页面 + 卡片复用 + 视觉定稿
+## 4.42 「全部游戏」从浮层提成平级一层 + 卡片复用 + 视觉定稿
+
+> 后来首页和网格又合并成了同一页的两种布局（4.43），这里保留的是「不再是弹层」那一步的来历。
 
 ### 结构
 - **不再是浮层**：原来 `.library` 是 `position: absolute; inset: 0; z-index: 40` 的弹层，
-  改成和首页平级的一页 —— `App.vue` 里 `.home` 用 `v-show="!gridOpen"` 让位，
-  `<LibraryGrid>` 和 `<HintBar>` 提到 `.app` 下。`.library` 因此变成
-  `position: relative; height: 100%`，不再有自己的底色。
+  改成和首页平级的一层 —— `<LibraryGrid>` 和 `<HintBar>` 提到 `.app` 下。
+  `.library` 因此变成 `position: relative; height: 100%`，不再有自己的底色。
+  （当时靠 `.home` 的 `v-show="!gridOpen"` 让位；合并成单页后这一步已经删掉，见 4.43。）
 - **设置 / 搜索 / toast / 启动浮层也提到 `.app` 根上**：它们本来挂在 `.home` 里，
   网格一开就被 `v-show` 整层藏起来 —— 于是「网格里按 S、`/` 没反应」
   「添加游戏成功的提示看不见」「Enter 启动失败先被挑回首页再报错」都是同一个原因。
@@ -929,6 +931,34 @@ GET https://api.steampowered.com/IStoreBrowseService/GetItems/v1/?input_json=...
   `rgba(0,0,0,.42)` 圆底 + 阴影。
 - **`.card` 改 `overflow: visible`**（要往外画焦点环），裁切下沉到 `.art`；
   `.label` 因此要自己收 `border-radius: 0 0 12px 12px`，否则它的直角会盖住封面下沿圆角。
+
+## 4.43 单页双布局，以及无边框窗口的拖动把手
+
+首页卡片带和「全部游戏」网格是同一批 `.cell`，进出网格只换 `.area` 的 class，
+动画走 FLIP（细节见 4.3 的「全部游戏」一节）。这里只记两件容易忘的事。
+
+### 窗口怎么拖（`--app-region: drag`）
+
+`Frameless: true` 没有标题栏，页面不标拖动区就等于「窗口钉死在屏幕上」。
+mygo 的 bridge 认「计算出来的 `--app-region`」：`drag` 当把手，`no-drag` 抠掉一块，
+mousedown 命中就交给系统；`button / a[href] / input` 这些它自己会放过，不用另标。
+
+- `.home` 整层是把手 —— 空白处、标题块 `.meta`、顶栏空白都能拖。
+- `.cell` 标 `no-drag`：卡片要自己接 `pointerdown`（拖拽排序），变成把手就没法排序了。
+- `PanelShell`（详情 / 设置）标 `no-drag`：它盖在 `.home` 上会继承 `drag`，
+  按住面板空白拖着窗口跑很怪。
+- 自定义属性会**继承**，所以只标父级 + 需要的地方抠掉，比逐个标省事；
+  也正因为继承，`.who` 的计算值是 `drag`，但它是 `<button>`，靠 bridge 的
+  `INTERACTIVE` 判断照常收点击。
+- 验证只能在**窗口化**状态下拖：全屏时窗口本来就贴在屏幕上，拖了也不动，
+  很容易误判成「没生效」。用 automation 的 `windows` 取 `bounds` 前后对比最直观。
+
+### 一个合并带出来的鼠标 bug
+
+`watch(cursor)` 里原来写着 `if (isRail.value) return`（网格模式的滚动与 `emit("focus")`
+都跟在后面）。合并之后卡片带也走这个组件，于是**首页点卡片只挪了内部光标，
+右侧标题还是上一部** —— 键盘方向键能动、鼠标点了没反应。选中状态由 `App` 持有，
+所以两种布局都必须发 `focus`，只有「要不要滚动」才分模式。
 
 ## 5. 全屏与任务栏
 

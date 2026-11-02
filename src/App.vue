@@ -1130,7 +1130,14 @@ onUnmounted(() => {
 
 .home {
   position: relative;
-  z-index: 1; /* 背景在最外层 .app，内容整体抬一层 */
+  z-index: 1;
+  /*
+   * 无边框窗口没有标题栏，整页空白处都是「把手」：
+   * mygo 的 bridge 认出 --app-region: drag，按下就交给系统去拖窗口。
+   * 卡片(.cell)、按钮这些要自己收点击的地方在各自组件里标 no-drag ——
+   * 自定义属性会往下继承，所以子级能单独「抠掉」一块。
+   */
+  --app-region: drag; /* 背景在最外层 .app，内容整体抬一层 */
   height: 100%;
   overflow: hidden;
 }

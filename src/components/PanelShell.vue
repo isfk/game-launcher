@@ -38,6 +38,8 @@ defineProps<{
 .panel {
   position: absolute;
   top: 0;
+  /* 浮层盖在 .home 上会继承 drag；面板不是窗口把手，抠掉 */
+  --app-region: no-drag;
   right: 0;
   bottom: 0;
   z-index: var(--z-detail);

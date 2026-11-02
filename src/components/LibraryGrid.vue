@@ -661,8 +661,11 @@ watch(isRail, async () => {
 });
 
 watch(cursor, () => {
-  if (isRail.value) return;
-  if (!drag?.active) scrollTo(cursor.value);
+  if (!isRail.value && !drag?.active) scrollTo(cursor.value);
+  /*
+   * 两种布局都要报焦点：卡片带模式下「选中哪部」是 App 持有的状态，
+   * 漏掉这一句，鼠标点卡片就只挪了内部光标，右侧标题还是上一部。
+   */
   const game = shown.value[cursor.value];
   if (game) emit("focus", game.key);
 });
@@ -1143,6 +1146,8 @@ h2 {
 .cell {
   /* 包裹层只负责占位和 FLIP：宽度跟着卡片走，卡片本体仍是 GameCard */
   width: var(--card-w, 200px);
+  /* 卡片自己接 pointerdown（拖拽排序），不能让它变成窗口拖动区 */
+  --app-region: no-drag;
   /* 焦点放大/上抬沿用 GameCard 的默认值，和首页完全一致 */
   --focus-scale: 1.04;
   --focus-lift: -0.4vh;
