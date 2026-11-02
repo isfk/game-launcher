@@ -889,10 +889,8 @@ defineExpose({
 <template>
   <div class="library" :class="mode">
     <header v-if="!isRail" class="head">
-      <h2>
-        全部游戏
-        <span class="count">{{ shown.length }}</span>
-      </h2>
+      <!-- 不写总数：右边「全部 N」那颗胶囊已经报了同一个数字，写两遍是噪音 -->
+      <h2>全部游戏</h2>
       <div class="head-right">
         <ProviderStats
           :items="lib.providerCounts"
@@ -1016,15 +1014,6 @@ h2 {
   margin: 0;
   font-size: 1.6rem;
   letter-spacing: -0.01em;
-}
-
-/* 总数跟在大字右边：不另起一行，也不再占一条副标题 */
-.count {
-  font-size: 0.9rem;
-  font-weight: 500;
-  color: rgba(255, 255, 255, 0.45);
-  font-variant-numeric: tabular-nums;
-  letter-spacing: 0.02em;
 }
 
 /* 关闭：贴着标题那一行，比标题的视觉高度再大一号，点起来不费劲 */

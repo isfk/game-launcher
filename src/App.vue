@@ -345,8 +345,8 @@ function pickFromSearch(key: string) {
 /**
  * startGridMove 进入「调整顺序」。
  *
- * 三种入口共用：标题栏按钮（鼠标）、键盘 M、设置面板里的「调整游戏顺序」
- * （手柄玩家的路子 —— 手柄没有指针，但 Menu 键人人都有）。
+ * 只有网格里按 M、手柄长按 Y 这两条键盘/手柄入口走这里（鼠标是直接拖卡片）。
+ * 首页不接这两个键：卡片带只有一排，没有格位可换，挪成第 3 位和第 30 位看起来一样。
  */
 async function startGridMove() {
   if (!lib.games.length) return;
@@ -584,9 +584,6 @@ function onPadIntent(intent: PadIntent) {
     // 「按一下就掉出全屏」的坑。这里不用它：全屏只留在设置里（键盘另有 F）。
   }
 }
-
-// e2e / 调试用：真手柄没法在自动化里造，直接把一条意图灌进分发器
-(window as unknown as { __padIntent?: (i: PadIntent) => void }).__padIntent = onPadIntent;
 
 usePad(onPadIntent, (kind) => {
   if (kind === "playstation" || kind === "switch" || kind === "xbox") padKind.value = kind;
@@ -923,14 +920,17 @@ onMounted(() => {
     a.currentTime = 0;
   });
 
-  // 临时调试钩子：自动化里直接看几个开关的真实状态
-  (window as unknown as Record<string, unknown>).__state = () => ({
-    searchOpen: searchOpen.value,
-    gridOpen: gridOpen.value,
-    settingsOpen: settingsOpen.value,
-    detailOpen: detailOpen.value,
-    usingPad: usingPad.value,
-  });
+  // 调试钩子只在 `mygo dev` 里挂：发布包不该带一个能读内部状态的口子。
+  // 自动化测真包时改看 DOM（`.library.rail` / `.panel.open` 这些类名同样是真状态）。
+  if (import.meta.env.DEV) {
+    (window as unknown as Record<string, unknown>).__state = () => ({
+      searchOpen: searchOpen.value,
+      gridOpen: gridOpen.value,
+      settingsOpen: settingsOpen.value,
+      detailOpen: detailOpen.value,
+      usingPad: usingPad.value,
+    });
+  }
   window.addEventListener("keydown", onKeydown);
   window.addEventListener("mousemove", onMousemove);
   // 开机画面一直留到「库真的读完」再撤：中间那段是扫 Steam / Epic / WeGame，
